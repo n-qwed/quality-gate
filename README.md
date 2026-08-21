@@ -75,6 +75,7 @@ and linked worktrees get independent state.
 | MCP servers / plugins | loaded | disabled |
 | Measured, small diff | ~209 s per review | ~50 s per review |
 | Max review passes | 3 | 2 |
+| Review timeout (default) | 2400 s | 300 s |
 | Final review after staging | always fresh | reused when content is byte-identical |
 
 Quick mode reduces review **depth only**. The independent reviewer, your own

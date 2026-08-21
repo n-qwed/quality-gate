@@ -10,6 +10,8 @@
 #   codex-review.sh [--quick|--full] [--pass <n>] [--timeout <s>]
 #                   [--label <text>] [--skip-unchanged]
 #
+#   --timeout defaults to 2400s in full mode and 300s in quick mode.
+#
 # Modes:
 #   --full  (default) whatever ~/.codex/config.toml specifies. Deepest review.
 #   --quick reasoning effort forced to "low", MCP servers and plugins disabled.
@@ -33,6 +35,7 @@
 # stdout always ends with a machine-readable trailer:
 #   QG_CODEX_STATUS=<status>
 #   QG_CODEX_MODE=<quick|full>
+#   QG_CODEX_TIMEOUT=<seconds the watchdog allowed>
 #   QG_CODEX_EXIT=<codex exit code>
 #   QG_CODEX_REVIEW_FILE=<path>
 
@@ -68,13 +71,14 @@ case "$MODE" in
 esac
 
 if [ -z "$TIMEOUT_SECS" ]; then
-  if [ "$MODE" = "quick" ]; then TIMEOUT_SECS=300; else TIMEOUT_SECS=900; fi
+  if [ "$MODE" = "quick" ]; then TIMEOUT_SECS=300; else TIMEOUT_SECS=2400; fi
 fi
 
 trailer() {
   printf '\n'
   printf 'QG_CODEX_STATUS=%s\n' "$1"
   printf 'QG_CODEX_MODE=%s\n' "$MODE"
+  printf 'QG_CODEX_TIMEOUT=%s\n' "$TIMEOUT_SECS"
   printf 'QG_CODEX_EXIT=%s\n' "$2"
   printf 'QG_CODEX_REVIEW_FILE=%s\n' "${3:-}"
 }

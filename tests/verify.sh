@@ -230,6 +230,16 @@ R=$(: > "$QG_STUB_LOG"; out=$(PATH="$STUB_DIR:$PATH" "$QG/codex-review.sh" --qui
 chk "--skip-unchanged reuses the review" "$R" "0 unchanged"
 [ ! -s "$QG_STUB_LOG" ] && ok "--skip-unchanged did not invoke codex at all" || bad "codex was invoked despite unchanged content"
 
+# timeout defaults: full 2400s, quick 300s, --timeout wins over both
+stub_timeout() {
+  : > "$QG_STUB_LOG"
+  PATH="$STUB_DIR:$PATH" "$QG/codex-review.sh" "$@" --pass t 2>/dev/null \
+    | sed -n 's/^QG_CODEX_TIMEOUT=//p'
+}
+chk "full default timeout"             "$(stub_timeout --full)" "2400"
+chk "quick default timeout"            "$(stub_timeout --quick)" "300"
+chk "--timeout overrides full default" "$(stub_timeout --full --timeout 77)" "77"
+
 R=$(QG_STUB_EMPTY=1 stub_run --full)
 chk "empty codex output is not a pass"  "$R" "4 empty"
 R=$(QG_STUB_EXIT=3 stub_run --full)

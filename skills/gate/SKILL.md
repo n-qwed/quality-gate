@@ -198,6 +198,7 @@ read-only sandbox, and ends its stdout with:
 ```
 QG_CODEX_STATUS=ok|unchanged|no-changes|empty|error|timeout|missing-cli|gate-off
 QG_CODEX_MODE=quick|full
+QG_CODEX_TIMEOUT=<seconds allowed>
 QG_CODEX_EXIT=<codex exit code>
 QG_CODEX_REVIEW_FILE=<path>
 ```
