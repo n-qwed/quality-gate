@@ -1,0 +1,17 @@
+{
+  "description": "Blocks direct `git commit` from Claude Code's Bash tool, but only in repositories where Quality Gate has been explicitly enabled. Silent everywhere else.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks-handlers/block-unreviewed-commit.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

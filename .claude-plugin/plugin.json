@@ -1,0 +1,9 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "qg",
+  "version": "1.0.0",
+  "description": "Quality Gate: block direct commits in opted-in repositories until Codex CLI has independently reviewed the exact staged diff.",
+  "author": {
+    "name": "naohiro tateishi"
+  }
+}
