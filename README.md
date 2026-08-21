@@ -39,7 +39,7 @@ directory (`claude plugin disable qg@skills-dir` to switch it off temporarily).
 | --- | --- |
 | **Required** | `git`, `jq`, Bash, [Codex CLI](https://github.com/openai/codex) authenticated |
 | **Optional** | [cmux](https://cmux.dev) for sidebar progress and a completion notification — the gate works fine without it |
-| **Platforms** | macOS and Linux. No GNU coreutils needed: `sha256sum`/`shasum` and a built-in watchdog replace `timeout`. |
+| **Platforms** | macOS and Linux. Written for **bash 3.2** (the macOS default), so no GNU coreutils and no bash 4 features: `sha256sum`/`shasum` are auto-detected and a built-in watchdog replaces `timeout`. |
 
 ## How the gate is enforced
 
@@ -88,6 +88,19 @@ The gate never runs `git reset --hard`, `git checkout -- .`, `git restore .`,
 `git clean -fd`, or `git stash`, never uses `git add .` / `git add -A`, never
 pushes or opens PRs, and never enables itself. Empty, timed-out, or failed Codex
 output is never treated as a pass.
+
+## Tests
+
+```bash
+~/.claude/skills/qg/tests/verify.sh
+```
+
+Runs ~98 checks in throwaway repositories and deletes them afterwards; it never
+touches a real repository. Codex is stubbed for the invocation tests, so the
+suite needs no network, no tokens, and finishes in seconds. It covers the
+default-OFF contract, hook allow/deny decisions, marker invisibility to
+`git status`, approval drift and HEAD drift refusal, worktree independence, and
+the argument assembly of both review modes.
 
 ## Layout
 

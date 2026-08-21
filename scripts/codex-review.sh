@@ -184,22 +184,29 @@ run_codex() {
   return "$rc"
 }
 
+# IMPORTANT (bash 3.2 / macOS default): under `set -u`, expanding an EMPTY
+# array as "${ARR[@]}" is an "unbound variable" error. Never build an array
+# that can be empty and then expand it -- accumulate into one array that
+# always has at least one element.
+
 # Codex must not be able to modify the tree; it is a reviewer, not a fixer.
-HARDENING=(-c 'sandbox_mode="read-only"' -c 'approval_policy="never"')
+CODEX_ARGS=(-c 'sandbox_mode="read-only"' -c 'approval_policy="never"')
 
 # Quick mode: the dominant cost is reasoning effort (config.toml may pin "max").
 # MCP servers and plugins only add startup latency to a review.
-QUICKCFG=()
 if [ "$MODE" = "quick" ]; then
-  QUICKCFG=(-c 'model_reasoning_effort="low"' -c 'mcp_servers={}' -c 'plugins={}')
+  CODEX_ARGS+=(-c 'model_reasoning_effort="low"' -c 'mcp_servers={}' -c 'plugins={}')
 fi
 
 # NOTE: `codex exec review --uncommitted` rejects a custom PROMPT argument,
 # so review scope/verbosity can only be tuned through config overrides.
 BASE_ARGS=(exec review --uncommitted -o "$LAST_MSG_FILE")
-[ -n "$LABEL" ] && BASE_ARGS+=(--title "$LABEL")
+if [ -n "$LABEL" ]; then
+  BASE_ARGS+=(--title "$LABEL")
+fi
+CODEX_ARGS+=("${BASE_ARGS[@]}")
 
-run_codex "${HARDENING[@]}" "${QUICKCFG[@]}" "${BASE_ARGS[@]}"
+run_codex "${CODEX_ARGS[@]}"
 CODEX_RC=$?
 
 # A CLI that rejects the overrides still has to produce a review; retry plain.
