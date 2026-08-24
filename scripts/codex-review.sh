@@ -159,6 +159,44 @@ rm -f "$LAST_MSG_FILE" "$STDOUT_FILE" "$STDERR_FILE"
 TIMED_OUT_FLAG="${REVIEW_FILE}.timedout"
 rm -f "$TIMED_OUT_FLAG"
 
+# Compact "what is Codex doing right now", read from the JSONL event stream.
+# Deliberately grep/sed rather than jq: this runs on a timer and the last line
+# of the file may still be partially written.
+qg_codex_activity() {
+  local raw clean
+  [ -s "$STDOUT_FILE" ] || { printf 'starting\n'; return 0; }
+  # The JSON string may contain escaped quotes, so a plain [^"]* stops short.
+  raw=$(grep -oE '"command":"([^"\\]|\\.)*"' "$STDOUT_FILE" 2>/dev/null | tail -n1 \
+        | sed -e 's/^"command":"//' -e 's/"$//')
+  if [ -n "$raw" ]; then
+    # Unescape, drop the shell wrapper, then keep only characters that cannot
+    # confuse the status-setting CLI. A stray quote here corrupted the pill.
+    clean=$(printf '%s' "$raw" \
+      | sed -e 's/\\\\n/ /g' -e 's/\\\\t/ /g' -e 's/\\"/ /g' \
+            -e "s|^/bin/[a-z]*sh -lc *||" \
+      | tr -d '\\"'"'"'`$\\\\' \
+      | tr -cd '[:alnum:][:space:]._/:;,=+-' \
+      | tr -s '[:space:]' ' ' \
+      | sed -e 's/^ *//' -e 's/ *$//' \
+      | cut -c1-34)
+    # Anything shorter than this is noise, not information.
+    if [ "${#clean}" -ge 3 ]; then
+      printf '%s\n' "$clean"
+      return 0
+    fi
+  fi
+  if grep -q '"type":"turn.started"' "$STDOUT_FILE" 2>/dev/null; then
+    printf 'reading the diff\n'
+  else
+    printf 'starting\n'
+  fi
+}
+
+qg_fmt_elapsed() {
+  local t="$1"
+  printf '%d:%02d\n' "$((t / 60))" "$((t % 60))"
+}
+
 run_codex() {
   codex "$@" >"$STDOUT_FILE" 2>"$STDERR_FILE" &
   cpid=$!
@@ -168,6 +206,13 @@ run_codex() {
       kill -0 "$cpid" 2>/dev/null || exit 0
       sleep 1
       waited=$((waited + 1))
+      # Codex blocks for minutes with no terminal output. Refresh the cmux pill
+      # every few seconds so it is visibly alive, and cheap enough for a
+      # 2400s ceiling.
+      if [ $((waited % 5)) -eq 0 ]; then
+        "$SCRIPT_DIR/cmux-status.sh" codex "$(qg_fmt_elapsed "$waited")" \
+          "$(qg_codex_activity)" >/dev/null 2>&1 || true
+      fi
     done
     if kill -0 "$cpid" 2>/dev/null; then
       : > "$TIMED_OUT_FLAG"
@@ -181,6 +226,7 @@ run_codex() {
   rc=$?
   kill "$wpid" 2>/dev/null || true
   wait "$wpid" 2>/dev/null || true
+  "$SCRIPT_DIR/cmux-status.sh" codex-clear >/dev/null 2>&1 || true
   if [ -f "$TIMED_OUT_FLAG" ]; then
     rm -f "$TIMED_OUT_FLAG"
     return 124
@@ -204,7 +250,7 @@ fi
 
 # NOTE: `codex exec review --uncommitted` rejects a custom PROMPT argument,
 # so review scope/verbosity can only be tuned through config overrides.
-BASE_ARGS=(exec review --uncommitted -o "$LAST_MSG_FILE")
+BASE_ARGS=(exec review --uncommitted --json -o "$LAST_MSG_FILE")
 if [ -n "$LABEL" ]; then
   BASE_ARGS+=(--title "$LABEL")
 fi
@@ -234,16 +280,36 @@ fi
   if [ "$MODE" = "quick" ]; then
     printf 'Depth: reduced (reasoning effort low) -- high-severity findings prioritised.\n'
   fi
-  printf 'Command: codex exec review --uncommitted\n\n'
+  printf 'Command: codex exec review --uncommitted\n'
+  if [ -s "$STDOUT_FILE" ] && command -v jq >/dev/null 2>&1; then
+    trace=$(jq -r 'select(.type=="item.started" and .item.type=="command_execution")
+                   | .item.command
+                   | gsub("\n"; " ")
+                   | sub("^/bin/[a-z]*sh -lc +"; "")' "$STDOUT_FILE" 2>/dev/null \
+            | cut -c1-110 | head -n 8)
+    if [ -n "$trace" ]; then
+      printf '\nCodex inspected the repository with:\n'
+      printf '%s\n' "$trace" | sed 's/^/  - /'
+    fi
+  fi
+  printf '\n'
 } >> "$REVIEW_FILE"
 
 REVIEW_BODY_BYTES=0
 if [ -s "$LAST_MSG_FILE" ]; then
   cat "$LAST_MSG_FILE" >> "$REVIEW_FILE"
   REVIEW_BODY_BYTES=$(wc -c < "$LAST_MSG_FILE" | tr -d ' ')
-elif [ -s "$STDOUT_FILE" ]; then
-  cat "$STDOUT_FILE" >> "$REVIEW_FILE"
-  REVIEW_BODY_BYTES=$(wc -c < "$STDOUT_FILE" | tr -d ' ')
+elif [ -s "$STDOUT_FILE" ] && command -v jq >/dev/null 2>&1; then
+  # stdout is a JSONL event stream (--json); the review text is the agent
+  # message. Never dump raw JSON into the review.
+  AGENT_MSG_FILE="${REVIEW_FILE}.agentmsg"
+  jq -r 'select(.item.type=="agent_message") | .item.text' "$STDOUT_FILE" \
+    > "$AGENT_MSG_FILE" 2>/dev/null || : > "$AGENT_MSG_FILE"
+  if [ -s "$AGENT_MSG_FILE" ]; then
+    cat "$AGENT_MSG_FILE" >> "$REVIEW_FILE"
+    REVIEW_BODY_BYTES=$(wc -c < "$AGENT_MSG_FILE" | tr -d ' ')
+  fi
+  rm -f "$AGENT_MSG_FILE"
 fi
 
 # --- classify ----------------------------------------------------------------

@@ -171,21 +171,33 @@ command -v codex >/dev/null 2>&1 && ok "codex CLI: available ($(codex --version 
 
 printf '\n== 14. codex invocation, both modes (stubbed CLI: no network, no tokens) ==\n'
 STUB_DIR="$TMPROOT/stub"; mkdir -p "$STUB_DIR"
+install_stub_json() {
 cat > "$STUB_DIR/codex" <<'STUB'
 #!/bin/bash
-# Fake Codex CLI. Logs argv, honours -o, exits with $QG_STUB_EXIT.
+# Fake Codex CLI. Logs argv, emits a `--json` style event stream on stdout,
+# honours -o, and exits with $QG_STUB_EXIT.
 printf '%s\n' "$*" >> "$QG_STUB_LOG"
 out=""; prev=""
 for a in "$@"; do
   if [ "$prev" = "-o" ]; then out="$a"; fi
   prev="$a"
 done
+printf '{"type":"thread.started","thread_id":"t"}\n'
+printf '{"type":"turn.started"}\n'
+printf '{"type":"item.started","item":{"type":"command_execution","command":"/bin/zsh -lc \\"git status --short && git diff\\"","status":"in_progress"}}\n'
+printf '{"type":"item.completed","item":{"type":"command_execution","command":"/bin/zsh -lc \\"git status --short && git diff\\"","status":"completed"}}\n'
+if [ "${QG_STUB_NO_AGENT_MSG:-0}" != "1" ]; then
+  printf '{"type":"item.completed","item":{"type":"agent_message","text":"Stubbed review: no blocking issues found."}}\n'
+fi
+printf '{"type":"turn.completed"}\n'
 if [ -n "$out" ] && [ "${QG_STUB_EMPTY:-0}" != "1" ]; then
   printf 'Stubbed review: no blocking issues found.\n' > "$out"
 fi
 exit "${QG_STUB_EXIT:-0}"
 STUB
 chmod +x "$STUB_DIR/codex"
+}
+install_stub_json
 export QG_STUB_LOG="$TMPROOT/stub.log"
 
 SREPO="$TMPROOT/stubrepo"; mkdir -p "$SREPO"; cd "$SREPO" || exit 1
@@ -240,7 +252,7 @@ chk "full default timeout"             "$(stub_timeout --full)" "2400"
 chk "quick default timeout"            "$(stub_timeout --quick)" "300"
 chk "--timeout overrides full default" "$(stub_timeout --full --timeout 77)" "77"
 
-R=$(QG_STUB_EMPTY=1 stub_run --full)
+R=$(QG_STUB_EMPTY=1 QG_STUB_NO_AGENT_MSG=1 stub_run --full)
 chk "empty codex output is not a pass"  "$R" "4 empty"
 R=$(QG_STUB_EXIT=3 stub_run --full)
 chk "codex non-zero exit is not a pass" "$R" "5 error"
@@ -260,6 +272,44 @@ STUB
 chmod +x "$STUB_DIR/codex"
 R=$(stub_run --full)
 chk "config-override rejection falls back and still reviews" "$R" "0 ok"
+
+
+printf '\n== 15. live progress during a Codex review ==\n'
+install_stub_json
+: > "$QG_STUB_LOG"
+PATH="$STUB_DIR:$PATH" "$QG/codex-review.sh" --full --pass t >/dev/null 2>&1
+grep -q -- '--json' "$QG_STUB_LOG" && ok "codex is asked for a --json event stream" \
+                                  || bad "--json not passed; live progress impossible"
+
+RF=$(cd "$SREPO" && "$QG/quality-gate-state.sh" marker-path | sed 's/quality-gate-enabled/quality-gate-review-latest.md/')
+: > "$QG_STUB_LOG"
+PATH="$STUB_DIR:$PATH" "$QG/codex-review.sh" --full --pass t >/dev/null 2>&1
+grep -q 'Codex inspected the repository with:' "$RF" \
+  && ok "review artifact records what Codex inspected" || bad "activity trace missing from artifact"
+grep -q 'git status --short' "$RF" && ok "trace shows the actual commands" || bad "trace has no commands"
+
+# With no -o output the review must come from the event stream as prose,
+# never as raw JSON.
+R=$(QG_STUB_EMPTY=1 stub_run --full)
+chk "review recovered from the event stream" "$R" "0 ok"
+grep -q '"type":' "$RF" && bad "raw JSON leaked into the review artifact" \
+                        || ok "artifact holds prose, not raw JSON"
+grep -q 'Stubbed review' "$RF" && ok "agent_message became the review body" || bad "agent_message not extracted"
+
+# The pill helpers must never break a run, with or without cmux.
+( PATH="/usr/bin:/bin"; "$QG/cmux-status.sh" codex "1:23" "cat x.js" >/dev/null 2>&1 ); chk "codex pill no-ops without cmux" "$?" "0"
+( PATH="/usr/bin:/bin"; "$QG/cmux-status.sh" codex-clear >/dev/null 2>&1 ); chk "codex-clear no-ops without cmux" "$?" "0"
+"$QG/cmux-status.sh" codex-clear >/dev/null 2>&1; chk "codex-clear is safe to call anytime" "$?" "0"
+
+# A quote in the command text must not corrupt the pill value (regression).
+ACT=$(STDOUT_FILE="$TMPROOT/act.jsonl"
+      printf '{"type":"item.started","item":{"type":"command_execution","command":"%s"}}\n' "'" > "$TMPROOT/act.jsonl"
+      eval "$(sed -n '/^qg_codex_activity() {/,/^}/p' "$QG/codex-review.sh")"; qg_codex_activity)
+chk "lone quote falls back instead of corrupting the pill" "$ACT" "starting"
+ACT=$(STDOUT_FILE="$TMPROOT/act.jsonl"
+      printf '{"type":"item.started","item":{"type":"command_execution","command":"/bin/zsh -lc \\"git status --short && git diff\\""}}\n' > "$TMPROOT/act.jsonl"
+      eval "$(sed -n '/^qg_codex_activity() {/,/^}/p' "$QG/codex-review.sh")"; qg_codex_activity)
+chk "escaped-quote command renders readably" "$ACT" "git status --short git diff"
 
 "$QG/quality-gate-state.sh" disable >/dev/null
 cd "$REPO" 2>/dev/null || cd "$TMPROOT" || exit 1

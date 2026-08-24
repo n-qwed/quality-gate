@@ -218,6 +218,11 @@ the whole point is an independent reviewer.
 Codex reviews staged, unstaged, and untracked changes together. Codex never
 edits files; all fixes are yours.
 
+A review blocks for minutes with no terminal output. While it runs, the script
+keeps a cmux pill updated with the elapsed time and what Codex is currently
+doing, and clears it when the call returns — so do not add your own progress
+chatter around it, and do not assume a long silence means it hung.
+
 ---
 
 ## Phase 4 — Review evaluation

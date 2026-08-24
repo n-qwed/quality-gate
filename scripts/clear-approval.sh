@@ -38,7 +38,7 @@ else
 fi
 
 # Stale review artifacts are also invalid once the approval is gone.
-for suffix in "" ".lastmsg" ".stdout" ".stderr" ".timedout" ".fingerprint"; do
+for suffix in "" ".lastmsg" ".stdout" ".stderr" ".timedout" ".fingerprint" ".agentmsg"; do
   f=$(qg_git_path "quality-gate-review-latest.md${suffix}") || continue
   [ -f "$f" ] && rm -f "$f"
 done

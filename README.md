@@ -54,6 +54,20 @@ committing re-checks that `HEAD` and the SHA-256 of `git diff --cached --binary`
 still match what was approved after the final Codex review. Any drift is
 refused and the stale approval is invalidated.
 
+## Seeing it work
+
+A Codex review is one long blocking call, so the gate reports progress
+out-of-band. While `codex exec review` runs, a cmux pill is refreshed every 5
+seconds with the elapsed time and the command Codex is currently running:
+
+```
+[⚡ Running]  [🔍 Codex 1:23 · ls -la; git ls-files]
+```
+
+It is cleared when the call returns. Without cmux this is a silent no-op and the
+review is unaffected. The review artifact also records every command Codex ran,
+so you can check afterwards that it really looked at your changes.
+
 ## State lives inside the Git directory
 
 Markers are written to paths from `git rev-parse --git-path`:

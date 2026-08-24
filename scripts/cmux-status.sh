@@ -10,6 +10,8 @@
 #   cmux-status.sh ok <message>
 #   cmux-status.sh error <message>
 #   cmux-status.sh notify-passed <body>   # the only notification we ever emit
+#   cmux-status.sh codex <mm:ss> [activity]  # live pill while Codex is running
+#   cmux-status.sh codex-clear
 #   cmux-status.sh clear
 #   cmux-status.sh available              # exit 0 if cmux usable
 #
@@ -20,6 +22,7 @@
 set -uo pipefail
 
 QG_STATUS_KEY="quality_gate"
+QG_CODEX_KEY="qg_codex"
 
 have_cmux() { command -v cmux >/dev/null 2>&1; }
 
@@ -106,8 +109,27 @@ case "${1:-}" in
     cx log --level success --source quality-gate -- "Quality Gate passed"
     ;;
 
+  codex)
+    # A Codex review is one long blocking call. This pill is the only signal
+    # that it is alive, so it carries the elapsed time and what Codex is doing.
+    shift || true
+    elapsed="${1:-}"
+    shift || true
+    activity="${*:-}"
+    if [ -n "$activity" ]; then
+      cx set-status "$QG_CODEX_KEY" "Codex ${elapsed} · ${activity}" --icon magnifyingglass --color "#0a84ff" --priority 92
+    else
+      cx set-status "$QG_CODEX_KEY" "Codex ${elapsed}" --icon magnifyingglass --color "#0a84ff" --priority 92
+    fi
+    ;;
+
+  codex-clear)
+    cx clear-status "$QG_CODEX_KEY"
+    ;;
+
   clear)
     cx clear-status "$QG_STATUS_KEY"
+    cx clear-status "$QG_CODEX_KEY"
     cx clear-progress
     ;;
 

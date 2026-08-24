@@ -101,7 +101,7 @@ qg_has_staged_changes() {
 
 qg_remove_review_artifacts() {
   local f suffix
-  for suffix in "" ".lastmsg" ".stdout" ".stderr" ".timedout" ".fingerprint"; do
+  for suffix in "" ".lastmsg" ".stdout" ".stderr" ".timedout" ".fingerprint" ".agentmsg"; do
     f=$(qg_git_path "quality-gate-review-latest.md${suffix}") || continue
     [ -f "$f" ] && rm -f "$f"
   done
