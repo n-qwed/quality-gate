@@ -38,6 +38,7 @@ for f in "$PLUGIN_ROOT/.claude-plugin/plugin.json" \
          "$PLUGIN_ROOT/hooks/hooks.json" \
          "$PLUGIN_ROOT/skills/gate/SKILL.md" \
          "$PLUGIN_ROOT/skills/quick/SKILL.md" \
+         "$PLUGIN_ROOT/skills/standard/SKILL.md" \
          "$PLUGIN_ROOT/skills/enable/SKILL.md" \
          "$PLUGIN_ROOT/skills/disable/SKILL.md" \
          "$PLUGIN_ROOT/skills/status/SKILL.md"; do
@@ -169,7 +170,7 @@ command -v codex >/dev/null 2>&1 && ok "codex CLI: available ($(codex --version 
 ( PATH="/usr/bin:/bin"; "$QG/cmux-status.sh" phase Testing >/dev/null 2>&1 ); chk "cmux-status.sh no-ops without cmux" "$?" "0"
 ( PATH="/usr/bin:/bin"; "$QG/cmux-status.sh" notify-passed "x" >/dev/null 2>&1 ); chk "notify-passed no-ops without cmux" "$?" "0"
 
-printf '\n== 14. codex invocation, both modes (stubbed CLI: no network, no tokens) ==\n'
+printf '\n== 14. codex invocation, all modes (stubbed CLI: no network, no tokens) ==\n'
 STUB_DIR="$TMPROOT/stub"; mkdir -p "$STUB_DIR"
 install_stub_json() {
 cat > "$STUB_DIR/codex" <<'STUB'
@@ -236,13 +237,27 @@ grep -q 'mcp_servers={}' "$QG_STUB_LOG"                && ok "quick: disables MC
 grep -q 'plugins={}' "$QG_STUB_LOG"                    && ok "quick: disables plugins"            || bad "quick: plugins not disabled"
 grep -q 'sandbox_mode="read-only"' "$QG_STUB_LOG"      && ok "quick: keeps read-only sandbox"     || bad "quick: sandbox flag missing"
 
+R=$(stub_run --standard)
+chk "standard: exit + status"          "$R" "0 ok"
+grep -q 'unbound variable' "$TMPROOT/stub.err" && bad "standard: 'unbound variable' in stderr" \
+                                               || ok "standard: no 'unbound variable'"
+grep -q 'model_reasoning_effort="medium"' "$QG_STUB_LOG" && ok "standard: forces reasoning effort medium" || bad "standard: effort not medium"
+grep -q 'mcp_servers={}' "$QG_STUB_LOG"                && ok "standard: disables MCP servers"     || bad "standard: MCP not disabled"
+grep -q 'plugins={}' "$QG_STUB_LOG"                    && ok "standard: disables plugins"         || bad "standard: plugins not disabled"
+grep -q 'sandbox_mode="read-only"' "$QG_STUB_LOG"      && ok "standard: keeps read-only sandbox"  || bad "standard: sandbox flag missing"
+grep -q 'approval_policy="never"' "$QG_STUB_LOG"       && ok "standard: approval_policy=never"    || bad "standard: approval flag missing"
+R=$(: > "$QG_STUB_LOG"; out=$(PATH="$STUB_DIR:$PATH" "$QG/codex-review.sh" --standard --pass t --skip-unchanged 2>/dev/null); printf '%s %s\n' "$?" "$(printf '%s' "$out" | sed -n 's/^QG_CODEX_STATUS=//p')")
+chk "standard: --skip-unchanged reuses the review" "$R" "0 unchanged"
+R=$(PATH="$STUB_DIR:$PATH" "$QG/codex-review.sh" --mode bogus --pass t 2>/dev/null; echo $?)
+chk "unknown mode is rejected"          "$R" "1"
+
 FP="$(cd "$SREPO" && "$QG/quality-gate-state.sh" marker-path | sed 's/quality-gate-enabled/quality-gate-review-latest.md.fingerprint/')"
 [ -f "$FP" ] && ok "fingerprint recorded after a successful review" || bad "fingerprint not recorded"
 R=$(: > "$QG_STUB_LOG"; out=$(PATH="$STUB_DIR:$PATH" "$QG/codex-review.sh" --quick --pass t --skip-unchanged 2>/dev/null); printf '%s %s\n' "$?" "$(printf '%s' "$out" | sed -n 's/^QG_CODEX_STATUS=//p')")
 chk "--skip-unchanged reuses the review" "$R" "0 unchanged"
 [ ! -s "$QG_STUB_LOG" ] && ok "--skip-unchanged did not invoke codex at all" || bad "codex was invoked despite unchanged content"
 
-# timeout defaults: full 2400s, quick 300s, --timeout wins over both
+# timeout defaults: full 2400s, standard 900s, quick 300s, --timeout wins over all
 stub_timeout() {
   : > "$QG_STUB_LOG"
   PATH="$STUB_DIR:$PATH" "$QG/codex-review.sh" "$@" --pass t 2>/dev/null \
@@ -250,6 +265,7 @@ stub_timeout() {
 }
 chk "full default timeout"             "$(stub_timeout --full)" "2400"
 chk "quick default timeout"            "$(stub_timeout --quick)" "300"
+chk "standard default timeout"         "$(stub_timeout --standard)" "900"
 chk "--timeout overrides full default" "$(stub_timeout --full --timeout 77)" "77"
 
 R=$(QG_STUB_EMPTY=1 QG_STUB_NO_AGENT_MSG=1 stub_run --full)

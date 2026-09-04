@@ -19,6 +19,7 @@ Implement → Test → Codex Review → Fix → Re-test → Codex Re-review
 | `/qg:enable` | Opt this repository in |
 | `/qg:status` | Show gate state, Codex/cmux availability, pending approval |
 | `/qg:gate` | Run the full gate and commit at the end |
+| `/qg:standard` | Same gate, medium-depth Codex reviews (the everyday default) |
 | `/qg:quick` | Same gate, faster/shallower Codex reviews |
 | `/qg:disable` | Opt out, back to the normal Git workflow |
 
@@ -83,19 +84,19 @@ and linked worktrees get independent state.
 
 ## Modes
 
-| | `/qg:gate` (full) | `/qg:quick` |
-| --- | --- | --- |
-| Codex reasoning effort | as configured in `~/.codex/config.toml` | forced `low` |
-| MCP servers / plugins | loaded | disabled |
-| Measured, small diff | ~209 s per review | ~50 s per review |
-| Max review passes | 3 | 2 |
-| Review timeout (default) | 2400 s | 300 s |
-| Final review after staging | always fresh | reused when content is byte-identical |
+| | `/qg:gate` (full) | `/qg:standard` | `/qg:quick` |
+| --- | --- | --- | --- |
+| Codex reasoning effort | as configured in `~/.codex/config.toml` | forced `medium` | forced `low` |
+| MCP servers / plugins | loaded | disabled | disabled |
+| Measured, small diff | ~209 s per review | between the two | ~50 s per review |
+| Max review passes | 3 | 3 | 2 |
+| Review timeout (default) | 2400 s | 900 s | 300 s |
+| Final review after staging | always fresh | reused when content is byte-identical | reused when content is byte-identical |
 
-Quick mode reduces review **depth only**. The independent reviewer, your own
-evaluation of every finding, the tests, the exact-diff approval and the verified
-commit are identical in both modes. Use full mode for auth, crypto, payments,
-migrations, deletion paths, and large diffs.
+Standard and quick mode reduce review **depth only**. The independent reviewer,
+your own evaluation of every finding, the tests, the exact-diff approval and the
+verified commit are identical in all modes. Use full mode for auth, crypto,
+payments, migrations, deletion paths, and large diffs.
 
 ## Safety rules baked in
 
@@ -115,7 +116,7 @@ touches a real repository. Codex is stubbed for the invocation tests, so the
 suite needs no network, no tokens, and finishes in seconds. It covers the
 default-OFF contract, hook allow/deny decisions, marker invisibility to
 `git status`, approval drift and HEAD drift refusal, worktree independence, and
-the argument assembly of both review modes.
+the argument assembly of all three review modes.
 
 ## Layout
 
@@ -125,7 +126,7 @@ qg/
 ├── hooks/hooks.json                        PreToolUse registration
 ├── hooks-handlers/
 │   └── block-unreviewed-commit.sh          self-contained; fails open
-├── skills/{gate,quick,enable,disable,status}/SKILL.md
+├── skills/{gate,standard,quick,enable,disable,status}/SKILL.md
 └── scripts/
     ├── quality-gate-state.sh               state + shared library
     ├── codex-review.sh                     independent Codex review

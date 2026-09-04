@@ -19,7 +19,7 @@ start of the run and reuse it:
 
 ```bash
 QG="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/qg}/scripts"
-REVIEW=--full          # or --quick, see Modes below
+REVIEW=--full          # or --standard / --quick, see Modes below
 ```
 
 ---
@@ -50,35 +50,36 @@ Read these before doing anything else.
 
 ## Modes
 
-`/qg:gate` runs **full** depth. Quick mode runs the same pipeline with
-cheaper Codex reviews, and is selected by either `/qg:quick` or an
-invocation argument of `quick` (`/qg:gate quick`).
+`/qg:gate` runs **full** depth. Standard and quick modes run the same
+pipeline with cheaper Codex reviews, and are selected by `/qg:standard` /
+`/qg:quick` or an invocation argument (`/qg:gate standard`, `/qg:gate quick`).
 
-| | full (default) | quick |
-| --- | --- | --- |
-| Codex reasoning effort | whatever `~/.codex/config.toml` sets | forced `low` |
-| MCP servers / plugins | loaded | disabled (startup cost only) |
-| Measured on a small diff | ~209 s per review | ~50 s per review |
-| Max review passes | 3 | 2 |
-| Post-staging final review | always a fresh Codex run | reused when the content is byte-identical |
-| Finds | high **and** lower-severity findings | prioritises high-severity; **can miss the rest** |
+| | full (default) | standard | quick |
+| --- | --- | --- | --- |
+| Codex reasoning effort | whatever `~/.codex/config.toml` sets | forced `medium` | forced `low` |
+| MCP servers / plugins | loaded | disabled (startup cost only) | disabled (startup cost only) |
+| Review timeout (default) | 2400 s | 900 s | 300 s |
+| Max review passes | 3 | 3 | 2 |
+| Post-staging final review | always a fresh Codex run | reused when the content is byte-identical | reused when the content is byte-identical |
+| Finds | high **and** lower-severity findings | high and most lower-severity findings | prioritises high-severity; **can miss the rest** |
 
 Set the flag once at the start of the run:
 
 ```bash
-REVIEW=--full     # /qg:gate
-REVIEW=--quick    # /qg:gate quick
+REVIEW=--full      # /qg:gate
+REVIEW=--standard  # /qg:gate standard
+REVIEW=--quick     # /qg:gate quick
 ```
 
 Everything that makes the gate trustworthy is identical in both modes: an
 independent Codex reviewer, your own evaluation of the findings, tests, the
 exact-diff approval, and the verified commit. Only review *depth* changes.
 
-**Use full, not quick, when:** the change touches auth, permissions, crypto,
-payments, migrations, or deletion paths; the diff is large or spans many files;
-quick mode already produced findings you had to fix. If the user asked for quick
-but the change looks like one of these, say so and recommend full — then follow
-their decision.
+**Use full, not standard or quick, when:** the change touches auth,
+permissions, crypto, payments, migrations, or deletion paths; the diff is large
+or spans many files; a cheaper mode already produced findings you had to fix. If
+the user asked for standard or quick but the change looks like one of these, say
+so and recommend full — then follow their decision.
 
 ---
 
@@ -197,7 +198,7 @@ read-only sandbox, and ends its stdout with:
 
 ```
 QG_CODEX_STATUS=ok|unchanged|no-changes|empty|error|timeout|missing-cli|gate-off
-QG_CODEX_MODE=quick|full
+QG_CODEX_MODE=quick|standard|full
 QG_CODEX_TIMEOUT=<seconds allowed>
 QG_CODEX_EXIT=<codex exit code>
 QG_CODEX_REVIEW_FILE=<path>
@@ -261,10 +262,10 @@ $QG/cmux-status.sh phase "Codex Review"
 $QG/codex-review.sh $REVIEW --pass <n>
 ```
 
-**Maximum 3 review passes in full mode, 2 in quick mode.** If BLOCKING findings
-have not converged by then, **do not commit.** In quick mode, one option to offer
-the user is a single full-mode review instead of giving up — but never silently
-switch modes. Otherwise run:
+**Maximum 3 review passes in full and standard mode, 2 in quick mode.** If
+BLOCKING findings have not converged by then, **do not commit.** In standard or
+quick mode, one option to offer the user is a single full-mode review instead of
+giving up — but never silently switch modes. Otherwise run:
 
 ```bash
 $QG/cmux-status.sh error "Quality Gate did not converge after 3 review passes"
@@ -301,6 +302,8 @@ tree.
 $QG/cmux-status.sh phase "Final Review"
 # full mode:
 $QG/codex-review.sh --full --pass final --label "Quality Gate final review"
+# standard mode:
+$QG/codex-review.sh --standard --pass final --label "Quality Gate final review" --skip-unchanged
 # quick mode:
 $QG/codex-review.sh --quick --pass final --label "Quality Gate final review" --skip-unchanged
 ```
@@ -308,10 +311,11 @@ $QG/codex-review.sh --quick --pass final --label "Quality Gate final review" --s
 Required after staging, even if Phase 3/5 already passed — staging can change
 what is under review.
 
-In quick mode `--skip-unchanged` lets the script reuse the previous review when
-the uncommitted content has not changed by a single byte since then (staging
-alone does not change it). That is why quick mode usually costs one Codex call,
-not two. Any edit after a review invalidates the reuse and forces a fresh run.
+In standard and quick mode `--skip-unchanged` lets the script reuse the previous
+review when the uncommitted content has not changed by a single byte since then
+(staging alone does not change it). That is why those modes usually cost one
+Codex call, not two. Any edit after a review invalidates the reuse and forces a
+fresh run.
 
 If the final review yields BLOCKING findings: fix → test → stage → run the final
 review again. Code that changed after a review is unreviewed code; it must never
@@ -417,7 +421,7 @@ uncommitted, and the recommended next step. Also run
 | Script | Purpose |
 | --- | --- |
 | `quality-gate-state.sh enabled\|enable\|disable\|status` | gate state; markers live inside the Git dir |
-| `codex-review.sh [--quick\|--full] --pass <n> [--skip-unchanged]` | independent Codex review of uncommitted changes |
+| `codex-review.sh [--quick\|--standard\|--full] --pass <n> [--skip-unchanged]` | independent Codex review of uncommitted changes |
 | `approve-commit.sh` | freeze HEAD + staged-diff SHA-256 |
 | `commit-reviewed.sh -m\|-F\|--stdin` | the only sanctioned commit path |
 | `clear-approval.sh` | invalidate a pending approval (keeps the gate ON) |

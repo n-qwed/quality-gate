@@ -29,4 +29,6 @@ diff is still approved, and the commit still goes through
 Say so and recommend `/qg:gate` if the change touches authentication,
 authorization, crypto, payments, data migrations, or deletion paths; if the diff
 is large or spans many files; or if quick mode has already surfaced findings you
-had to fix. State the reason in one line, then follow the user's decision.
+had to fix. For an ordinary change that is merely too big for quick,
+`/qg:standard` is the middle option. State the reason in one line, then follow
+the user's decision.

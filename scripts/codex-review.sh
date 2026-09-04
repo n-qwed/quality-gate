@@ -7,13 +7,17 @@
 # All fixing is done by Claude Code afterwards.
 #
 # Usage:
-#   codex-review.sh [--quick|--full] [--pass <n>] [--timeout <s>]
+#   codex-review.sh [--quick|--standard|--full] [--pass <n>] [--timeout <s>]
 #                   [--label <text>] [--skip-unchanged]
 #
-#   --timeout defaults to 2400s in full mode and 300s in quick mode.
+#   --timeout defaults to 2400s in full mode, 900s in standard mode and 300s
+#   in quick mode.
 #
 # Modes:
 #   --full  (default) whatever ~/.codex/config.toml specifies. Deepest review.
+#   --standard reasoning effort forced to "medium", MCP servers and plugins
+#           disabled. Sits between quick and full: noticeably faster than a
+#           config.toml effort of "max", still deep enough for everyday changes.
 #   --quick reasoning effort forced to "low", MCP servers and plugins disabled.
 #           Measured on a small diff: ~50s vs ~209s for full. Catches the
 #           high-severity defects; may miss lower-severity ones.
@@ -34,7 +38,7 @@
 #
 # stdout always ends with a machine-readable trailer:
 #   QG_CODEX_STATUS=<status>
-#   QG_CODEX_MODE=<quick|full>
+#   QG_CODEX_MODE=<quick|standard|full>
 #   QG_CODEX_TIMEOUT=<seconds the watchdog allowed>
 #   QG_CODEX_EXIT=<codex exit code>
 #   QG_CODEX_REVIEW_FILE=<path>
@@ -54,6 +58,7 @@ SKIP_UNCHANGED=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --quick)          MODE="quick"; shift ;;
+    --standard)       MODE="standard"; shift ;;
     --full)           MODE="full"; shift ;;
     --mode)           MODE="${2:-full}"; shift 2 ;;
     --pass)           PASS_NO="${2:-}"; shift 2 ;;
@@ -66,12 +71,16 @@ while [ $# -gt 0 ]; do
 done
 
 case "$MODE" in
-  quick|full) : ;;
-  *) qg_err "Unknown mode: $MODE (expected quick or full)"; exit 1 ;;
+  quick|standard|full) : ;;
+  *) qg_err "Unknown mode: $MODE (expected quick, standard or full)"; exit 1 ;;
 esac
 
 if [ -z "$TIMEOUT_SECS" ]; then
-  if [ "$MODE" = "quick" ]; then TIMEOUT_SECS=300; else TIMEOUT_SECS=2400; fi
+  case "$MODE" in
+    quick)    TIMEOUT_SECS=300 ;;
+    standard) TIMEOUT_SECS=900 ;;
+    *)        TIMEOUT_SECS=2400 ;;
+  esac
 fi
 
 trailer() {
@@ -242,11 +251,12 @@ run_codex() {
 # Codex must not be able to modify the tree; it is a reviewer, not a fixer.
 CODEX_ARGS=(-c 'sandbox_mode="read-only"' -c 'approval_policy="never"')
 
-# Quick mode: the dominant cost is reasoning effort (config.toml may pin "max").
-# MCP servers and plugins only add startup latency to a review.
-if [ "$MODE" = "quick" ]; then
-  CODEX_ARGS+=(-c 'model_reasoning_effort="low"' -c 'mcp_servers={}' -c 'plugins={}')
-fi
+# Quick/standard modes: the dominant cost is reasoning effort (config.toml may
+# pin "max"). MCP servers and plugins only add startup latency to a review.
+case "$MODE" in
+  quick)    CODEX_ARGS+=(-c 'model_reasoning_effort="low"'    -c 'mcp_servers={}' -c 'plugins={}') ;;
+  standard) CODEX_ARGS+=(-c 'model_reasoning_effort="medium"' -c 'mcp_servers={}' -c 'plugins={}') ;;
+esac
 
 # NOTE: `codex exec review --uncommitted` rejects a custom PROMPT argument,
 # so review scope/verbosity can only be tuned through config overrides.
@@ -277,9 +287,10 @@ fi
   printf 'Repository: %s\n' "$(qg_repo_root)"
   printf 'Generated: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf 'Mode: %s\n' "$MODE"
-  if [ "$MODE" = "quick" ]; then
-    printf 'Depth: reduced (reasoning effort low) -- high-severity findings prioritised.\n'
-  fi
+  case "$MODE" in
+    quick)    printf 'Depth: reduced (reasoning effort low) -- high-severity findings prioritised.\n' ;;
+    standard) printf 'Depth: balanced (reasoning effort medium) -- everyday changes; use full for sensitive paths.\n' ;;
+  esac
   printf 'Command: codex exec review --uncommitted\n'
   if [ -s "$STDOUT_FILE" ] && command -v jq >/dev/null 2>&1; then
     trace=$(jq -r 'select(.type=="item.started" and .item.type=="command_execution")
