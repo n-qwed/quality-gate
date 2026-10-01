@@ -224,8 +224,9 @@ grep -q 'unbound variable' "$TMPROOT/stub.err" && bad "full: 'unbound variable' 
                                                || ok "full: no 'unbound variable' (bash 3.2 empty-array guard)"
 grep -q 'sandbox_mode="read-only"' "$QG_STUB_LOG"      && ok "full: read-only sandbox passed"   || bad "full: sandbox flag missing"
 grep -q 'approval_policy="never"' "$QG_STUB_LOG"       && ok "full: approval_policy=never"      || bad "full: approval flag missing"
-grep -q 'model_reasoning_effort' "$QG_STUB_LOG"        && bad "full: must NOT force reasoning effort" \
-                                                       || ok "full: leaves reasoning effort to config"
+grep -q 'model_reasoning_effort="high"' "$QG_STUB_LOG" && ok "full: forces reasoning effort high" || bad "full: effort not high"
+grep -q 'model="gpt-6-astra"' "$QG_STUB_LOG"           && ok "full: pins model gpt-6-astra"        || bad "full: model not gpt-6-astra"
+grep -q 'mcp_servers={}' "$QG_STUB_LOG"                && bad "full: must NOT disable MCP servers" || ok "full: keeps MCP servers"
 grep -q 'exec review --uncommitted' "$QG_STUB_LOG"     && ok "full: reviews uncommitted changes" || bad "full: wrong codex subcommand"
 
 R=$(stub_run --quick)
@@ -233,6 +234,7 @@ chk "quick: exit + status"             "$R" "0 ok"
 grep -q 'unbound variable' "$TMPROOT/stub.err" && bad "quick: 'unbound variable' in stderr" \
                                                || ok "quick: no 'unbound variable'"
 grep -q 'model_reasoning_effort="low"' "$QG_STUB_LOG"  && ok "quick: forces reasoning effort low" || bad "quick: effort not lowered"
+grep -q 'model="gpt-6.1-sol"' "$QG_STUB_LOG"           && ok "quick: pins model gpt-6.1-sol"       || bad "quick: model not gpt-6.1-sol"
 grep -q 'mcp_servers={}' "$QG_STUB_LOG"                && ok "quick: disables MCP servers"        || bad "quick: MCP not disabled"
 grep -q 'plugins={}' "$QG_STUB_LOG"                    && ok "quick: disables plugins"            || bad "quick: plugins not disabled"
 grep -q 'sandbox_mode="read-only"' "$QG_STUB_LOG"      && ok "quick: keeps read-only sandbox"     || bad "quick: sandbox flag missing"
@@ -242,6 +244,7 @@ chk "standard: exit + status"          "$R" "0 ok"
 grep -q 'unbound variable' "$TMPROOT/stub.err" && bad "standard: 'unbound variable' in stderr" \
                                                || ok "standard: no 'unbound variable'"
 grep -q 'model_reasoning_effort="medium"' "$QG_STUB_LOG" && ok "standard: forces reasoning effort medium" || bad "standard: effort not medium"
+grep -q 'model="gpt-6.1-sol"' "$QG_STUB_LOG"           && ok "standard: pins model gpt-6.1-sol"    || bad "standard: model not gpt-6.1-sol"
 grep -q 'mcp_servers={}' "$QG_STUB_LOG"                && ok "standard: disables MCP servers"     || bad "standard: MCP not disabled"
 grep -q 'plugins={}' "$QG_STUB_LOG"                    && ok "standard: disables plugins"         || bad "standard: plugins not disabled"
 grep -q 'sandbox_mode="read-only"' "$QG_STUB_LOG"      && ok "standard: keeps read-only sandbox"  || bad "standard: sandbox flag missing"
@@ -256,6 +259,21 @@ FP="$(cd "$SREPO" && "$QG/quality-gate-state.sh" marker-path | sed 's/quality-ga
 R=$(: > "$QG_STUB_LOG"; out=$(PATH="$STUB_DIR:$PATH" "$QG/codex-review.sh" --quick --pass t --skip-unchanged 2>/dev/null); printf '%s %s\n' "$?" "$(printf '%s' "$out" | sed -n 's/^QG_CODEX_STATUS=//p')")
 chk "--skip-unchanged reuses the review" "$R" "0 unchanged"
 [ ! -s "$QG_STUB_LOG" ] && ok "--skip-unchanged did not invoke codex at all" || bad "codex was invoked despite unchanged content"
+
+# model overrides: QG_MODEL_<MODE> replaces the default; empty string unpins.
+: > "$QG_STUB_LOG"
+out=$(PATH="$STUB_DIR:$PATH" QG_MODEL_FULL="gpt-6.1-sol" "$QG/codex-review.sh" --full --pass t 2>/dev/null)
+grep -q 'model="gpt-6.1-sol"' "$QG_STUB_LOG"           && ok "full: QG_MODEL_FULL overrides the model" || bad "full: QG_MODEL_FULL ignored"
+chk "full: trailer reports overridden model" "$(printf '%s' "$out" | sed -n 's/^QG_CODEX_MODEL=//p')" "gpt-6.1-sol"
+: > "$QG_STUB_LOG"
+out=$(PATH="$STUB_DIR:$PATH" QG_MODEL_QUICK="" "$QG/codex-review.sh" --quick --pass t 2>/dev/null)
+grep -q ' model=' "$QG_STUB_LOG"                       && bad "quick: empty QG_MODEL_QUICK must not pin a model" || ok "quick: empty QG_MODEL_QUICK leaves model to config"
+chk "quick: trailer reports config model" "$(printf '%s' "$out" | sed -n 's/^QG_CODEX_MODEL=//p')" "config"
+: > "$QG_STUB_LOG"
+out=$(PATH="$STUB_DIR:$PATH" "$QG/codex-review.sh" --standard --pass t 2>/dev/null)
+chk "standard: trailer reports model"   "$(printf '%s' "$out" | sed -n 's/^QG_CODEX_MODEL=//p')" "gpt-6.1-sol"
+grep -q '^Model: gpt-6.1-sol (reasoning effort medium)$' "$(printf '%s' "$out" | sed -n 's/^QG_CODEX_REVIEW_FILE=//p')" \
+  && ok "standard: review header names model and effort" || bad "standard: review header missing model line"
 
 # timeout defaults: full 2400s, standard 900s, quick 300s, --timeout wins over all
 stub_timeout() {

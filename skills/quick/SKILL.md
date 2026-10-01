@@ -1,6 +1,6 @@
 ---
 name: quick
-description: Run the Quality Gate with faster, shallower Codex reviews (reasoning effort low, MCP disabled). Same safety chain, less review depth.
+description: Run the Quality Gate with faster, shallower Codex reviews (gpt-6.1-sol, reasoning effort low, MCP disabled). Same safety chain, less review depth.
 disable-model-invocation: true
 ---
 
@@ -15,7 +15,8 @@ Same gate, cheaper reviews.
 REVIEW=--quick
 ```
 
-3. That means: max **2** review passes, and the post-staging final review uses
+3. That means: Codex runs `gpt-6.1-sol` at reasoning effort `low` with MCP
+   servers and plugins disabled, max **2** review passes, and the post-staging final review uses
    `--skip-unchanged` so it is reused when nothing changed byte-for-byte since
    the previous review.
 

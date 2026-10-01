@@ -13,14 +13,17 @@
 #   --timeout defaults to 2400s in full mode, 900s in standard mode and 300s
 #   in quick mode.
 #
-# Modes:
-#   --full  (default) whatever ~/.codex/config.toml specifies. Deepest review.
-#   --standard reasoning effort forced to "medium", MCP servers and plugins
-#           disabled. Sits between quick and full: noticeably faster than a
-#           config.toml effort of "max", still deep enough for everyday changes.
-#   --quick reasoning effort forced to "low", MCP servers and plugins disabled.
-#           Measured on a small diff: ~50s vs ~209s for full. Catches the
+# Modes (model / reasoning effort):
+#   --full  (default) gpt-6-astra / high. MCP servers and plugins loaded.
+#           Deepest review; the slot for auth, payments, migrations, large diffs.
+#   --standard gpt-6.1-sol / medium, MCP servers and plugins disabled.
+#           Sits between quick and full: the everyday review.
+#   --quick gpt-6.1-sol / low, MCP servers and plugins disabled. Catches the
 #           high-severity defects; may miss lower-severity ones.
+#
+#   The model per mode can be overridden with QG_MODEL_FULL, QG_MODEL_STANDARD
+#   and QG_MODEL_QUICK. Setting one to the empty string leaves the model to
+#   ~/.codex/config.toml. Reasoning effort is always pinned per mode.
 #
 #   --skip-unchanged  If the uncommitted content is byte-identical to what the
 #           last successful review already saw, reuse that review instead of
@@ -39,6 +42,7 @@
 # stdout always ends with a machine-readable trailer:
 #   QG_CODEX_STATUS=<status>
 #   QG_CODEX_MODE=<quick|standard|full>
+#   QG_CODEX_MODEL=<model slug, or "config" when left to config.toml>
 #   QG_CODEX_TIMEOUT=<seconds the watchdog allowed>
 #   QG_CODEX_EXIT=<codex exit code>
 #   QG_CODEX_REVIEW_FILE=<path>
@@ -83,10 +87,19 @@ if [ -z "$TIMEOUT_SECS" ]; then
   esac
 fi
 
+# Model per mode. `${VAR-default}` (no colon) so an explicitly empty override
+# means "do not pin a model; follow ~/.codex/config.toml".
+case "$MODE" in
+  quick)    MODEL="${QG_MODEL_QUICK-gpt-6.1-sol}";    EFFORT="low" ;;
+  standard) MODEL="${QG_MODEL_STANDARD-gpt-6.1-sol}"; EFFORT="medium" ;;
+  *)        MODEL="${QG_MODEL_FULL-gpt-6-astra}";     EFFORT="high" ;;
+esac
+
 trailer() {
   printf '\n'
   printf 'QG_CODEX_STATUS=%s\n' "$1"
   printf 'QG_CODEX_MODE=%s\n' "$MODE"
+  printf 'QG_CODEX_MODEL=%s\n' "${MODEL:-config}"
   printf 'QG_CODEX_TIMEOUT=%s\n' "$TIMEOUT_SECS"
   printf 'QG_CODEX_EXIT=%s\n' "$2"
   printf 'QG_CODEX_REVIEW_FILE=%s\n' "${3:-}"
@@ -251,11 +264,15 @@ run_codex() {
 # Codex must not be able to modify the tree; it is a reviewer, not a fixer.
 CODEX_ARGS=(-c 'sandbox_mode="read-only"' -c 'approval_policy="never"')
 
-# Quick/standard modes: the dominant cost is reasoning effort (config.toml may
-# pin "max"). MCP servers and plugins only add startup latency to a review.
+# Every mode pins its reasoning effort; full additionally gets the frontier
+# model. Quick/standard drop MCP servers and plugins, which only add startup
+# latency to a review.
+CODEX_ARGS+=(-c "model_reasoning_effort=\"$EFFORT\"")
+if [ -n "$MODEL" ]; then
+  CODEX_ARGS+=(-c "model=\"$MODEL\"")
+fi
 case "$MODE" in
-  quick)    CODEX_ARGS+=(-c 'model_reasoning_effort="low"'    -c 'mcp_servers={}' -c 'plugins={}') ;;
-  standard) CODEX_ARGS+=(-c 'model_reasoning_effort="medium"' -c 'mcp_servers={}' -c 'plugins={}') ;;
+  quick|standard) CODEX_ARGS+=(-c 'mcp_servers={}' -c 'plugins={}') ;;
 esac
 
 # NOTE: `codex exec review --uncommitted` rejects a custom PROMPT argument,
@@ -274,6 +291,7 @@ if [ "$CODEX_RC" -ne 0 ] && [ "$CODEX_RC" -ne 124 ] \
    && grep -qEi 'unexpected argument|invalid value|unknown field|failed to parse|unrecognized' "$STDERR_FILE" 2>/dev/null; then
   qg_info "Codex rejected the config overrides; retrying without them (review will run at config defaults)."
   MODE="full-fallback"
+  MODEL=""
   run_codex "${BASE_ARGS[@]}"
   CODEX_RC=$?
 fi
@@ -287,9 +305,11 @@ fi
   printf 'Repository: %s\n' "$(qg_repo_root)"
   printf 'Generated: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf 'Mode: %s\n' "$MODE"
+  printf 'Model: %s (reasoning effort %s)\n' "${MODEL:-config.toml default}" "$EFFORT"
   case "$MODE" in
-    quick)    printf 'Depth: reduced (reasoning effort low) -- high-severity findings prioritised.\n' ;;
-    standard) printf 'Depth: balanced (reasoning effort medium) -- everyday changes; use full for sensitive paths.\n' ;;
+    quick)    printf 'Depth: reduced -- high-severity findings prioritised.\n' ;;
+    standard) printf 'Depth: balanced -- everyday changes; use full for sensitive paths.\n' ;;
+    full)     printf 'Depth: full -- frontier model, all severities.\n' ;;
   esac
   printf 'Command: codex exec review --uncommitted\n'
   if [ -s "$STDOUT_FILE" ] && command -v jq >/dev/null 2>&1; then

@@ -1,13 +1,13 @@
 ---
 name: standard
-description: Run the Quality Gate with medium-depth Codex reviews (reasoning effort medium, MCP disabled). Faster than full, deeper than quick; same safety chain.
+description: Run the Quality Gate with medium-depth Codex reviews (gpt-6.1-sol, reasoning effort medium, MCP disabled). Faster than full, deeper than quick; same safety chain.
 disable-model-invocation: true
 ---
 
 # Quality Gate (standard)
 
 Same gate, medium-depth reviews. The everyday middle ground between `/qg:gate`
-(full, as slow as `~/.codex/config.toml` makes it) and `/qg:quick` (shallow).
+(full: frontier model at high effort) and `/qg:quick` (shallow).
 
 1. Read `${CLAUDE_PLUGIN_ROOT}/skills/gate/SKILL.md` in full.
 2. Follow it exactly, with:
@@ -16,8 +16,8 @@ Same gate, medium-depth reviews. The everyday middle ground between `/qg:gate`
 REVIEW=--standard
 ```
 
-3. That means: Codex reasoning effort forced to `medium`, MCP servers and
-   plugins disabled, a 900 s review timeout, max **3** review passes, and the
+3. That means: Codex runs `gpt-6.1-sol` at reasoning effort `medium`, MCP
+   servers and plugins disabled, a 900 s review timeout, max **3** review passes, and the
    post-staging final review uses `--skip-unchanged` so it is reused when
    nothing changed byte-for-byte since the previous review.
 

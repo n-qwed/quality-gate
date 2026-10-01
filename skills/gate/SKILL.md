@@ -56,7 +56,8 @@ pipeline with cheaper Codex reviews, and are selected by `/qg:standard` /
 
 | | full (default) | standard | quick |
 | --- | --- | --- | --- |
-| Codex reasoning effort | whatever `~/.codex/config.toml` sets | forced `medium` | forced `low` |
+| Codex model | `gpt-6-astra` (frontier) | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| Codex reasoning effort | `high` | `medium` | `low` |
 | MCP servers / plugins | loaded | disabled (startup cost only) | disabled (startup cost only) |
 | Review timeout (default) | 2400 s | 900 s | 300 s |
 | Max review passes | 3 | 3 | 2 |
@@ -199,6 +200,7 @@ read-only sandbox, and ends its stdout with:
 ```
 QG_CODEX_STATUS=ok|unchanged|no-changes|empty|error|timeout|missing-cli|gate-off
 QG_CODEX_MODE=quick|standard|full
+QG_CODEX_MODEL=<model slug, or config>
 QG_CODEX_TIMEOUT=<seconds allowed>
 QG_CODEX_EXIT=<codex exit code>
 QG_CODEX_REVIEW_FILE=<path>

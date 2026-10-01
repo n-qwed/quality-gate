@@ -86,9 +86,9 @@ and linked worktrees get independent state.
 
 | | `/qg:gate` (full) | `/qg:standard` | `/qg:quick` |
 | --- | --- | --- | --- |
-| Codex reasoning effort | as configured in `~/.codex/config.toml` | forced `medium` | forced `low` |
+| Codex model | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| Codex reasoning effort | `high` | `medium` | `low` |
 | MCP servers / plugins | loaded | disabled | disabled |
-| Measured, small diff | ~209 s per review | between the two | ~50 s per review |
 | Max review passes | 3 | 3 | 2 |
 | Review timeout (default) | 2400 s | 900 s | 300 s |
 | Final review after staging | always fresh | reused when content is byte-identical | reused when content is byte-identical |
@@ -97,6 +97,10 @@ Standard and quick mode reduce review **depth only**. The independent reviewer,
 your own evaluation of every finding, the tests, the exact-diff approval and the
 verified commit are identical in all modes. Use full mode for auth, crypto,
 payments, migrations, deletion paths, and large diffs.
+
+The model per mode can be overridden with `QG_MODEL_FULL`, `QG_MODEL_STANDARD`
+and `QG_MODEL_QUICK`. Setting one to the empty string leaves the model to
+`~/.codex/config.toml`; the reasoning effort stays pinned per mode.
 
 ## Safety rules baked in
 
@@ -111,7 +115,7 @@ output is never treated as a pass.
 ~/.claude/skills/qg/tests/verify.sh
 ```
 
-Runs ~98 checks in throwaway repositories and deletes them afterwards; it never
+Runs ~133 checks in throwaway repositories and deletes them afterwards; it never
 touches a real repository. Codex is stubbed for the invocation tests, so the
 suite needs no network, no tokens, and finishes in seconds. It covers the
 default-OFF contract, hook allow/deny decisions, marker invisibility to
