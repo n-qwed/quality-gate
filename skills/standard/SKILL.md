@@ -7,7 +7,7 @@ disable-model-invocation: true
 # Quality Gate (standard)
 
 Same gate, medium-depth reviews. The everyday middle ground between `/qg:gate`
-(full: frontier model at high effort) and `/qg:quick` (shallow).
+(full: high effort, MCP loaded) and `/qg:quick` (shallow).
 
 1. Read `${CLAUDE_PLUGIN_ROOT}/skills/gate/SKILL.md` in full.
 2. Follow it exactly, with:

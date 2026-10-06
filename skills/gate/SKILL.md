@@ -56,7 +56,7 @@ pipeline with cheaper Codex reviews, and are selected by `/qg:standard` /
 
 | | full (default) | standard | quick |
 | --- | --- | --- | --- |
-| Codex model | `gpt-6-astra` (frontier) | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| Codex model | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` |
 | Codex reasoning effort | `high` | `medium` | `low` |
 | MCP servers / plugins | loaded | disabled (startup cost only) | disabled (startup cost only) |
 | Review timeout (default) | 2400 s | 900 s | 300 s |

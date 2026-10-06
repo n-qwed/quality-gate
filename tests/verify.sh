@@ -225,7 +225,7 @@ grep -q 'unbound variable' "$TMPROOT/stub.err" && bad "full: 'unbound variable' 
 grep -q 'sandbox_mode="read-only"' "$QG_STUB_LOG"      && ok "full: read-only sandbox passed"   || bad "full: sandbox flag missing"
 grep -q 'approval_policy="never"' "$QG_STUB_LOG"       && ok "full: approval_policy=never"      || bad "full: approval flag missing"
 grep -q 'model_reasoning_effort="high"' "$QG_STUB_LOG" && ok "full: forces reasoning effort high" || bad "full: effort not high"
-grep -q 'model="gpt-6-astra"' "$QG_STUB_LOG"           && ok "full: pins model gpt-6-astra"        || bad "full: model not gpt-6-astra"
+grep -q 'model="gpt-6.1-sol"' "$QG_STUB_LOG"           && ok "full: pins model gpt-6.1-sol"        || bad "full: model not gpt-6.1-sol"
 grep -q 'mcp_servers={}' "$QG_STUB_LOG"                && bad "full: must NOT disable MCP servers" || ok "full: keeps MCP servers"
 grep -q 'exec review --uncommitted' "$QG_STUB_LOG"     && ok "full: reviews uncommitted changes" || bad "full: wrong codex subcommand"
 
@@ -262,9 +262,9 @@ chk "--skip-unchanged reuses the review" "$R" "0 unchanged"
 
 # model overrides: QG_MODEL_<MODE> replaces the default; empty string unpins.
 : > "$QG_STUB_LOG"
-out=$(PATH="$STUB_DIR:$PATH" QG_MODEL_FULL="gpt-6.1-sol" "$QG/codex-review.sh" --full --pass t 2>/dev/null)
-grep -q 'model="gpt-6.1-sol"' "$QG_STUB_LOG"           && ok "full: QG_MODEL_FULL overrides the model" || bad "full: QG_MODEL_FULL ignored"
-chk "full: trailer reports overridden model" "$(printf '%s' "$out" | sed -n 's/^QG_CODEX_MODEL=//p')" "gpt-6.1-sol"
+out=$(PATH="$STUB_DIR:$PATH" QG_MODEL_FULL="gpt-6-astra" "$QG/codex-review.sh" --full --pass t 2>/dev/null)
+grep -q 'model="gpt-6-astra"' "$QG_STUB_LOG"           && ok "full: QG_MODEL_FULL overrides the model" || bad "full: QG_MODEL_FULL ignored"
+chk "full: trailer reports overridden model" "$(printf '%s' "$out" | sed -n 's/^QG_CODEX_MODEL=//p')" "gpt-6-astra"
 : > "$QG_STUB_LOG"
 out=$(PATH="$STUB_DIR:$PATH" QG_MODEL_QUICK="" "$QG/codex-review.sh" --quick --pass t 2>/dev/null)
 grep -q ' model=' "$QG_STUB_LOG"                       && bad "quick: empty QG_MODEL_QUICK must not pin a model" || ok "quick: empty QG_MODEL_QUICK leaves model to config"

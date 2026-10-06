@@ -14,7 +14,7 @@
 #   in quick mode.
 #
 # Modes (model / reasoning effort):
-#   --full  (default) gpt-6-astra / high. MCP servers and plugins loaded.
+#   --full  (default) gpt-6.1-sol / high. MCP servers and plugins loaded.
 #           Deepest review; the slot for auth, payments, migrations, large diffs.
 #   --standard gpt-6.1-sol / medium, MCP servers and plugins disabled.
 #           Sits between quick and full: the everyday review.
@@ -92,7 +92,7 @@ fi
 case "$MODE" in
   quick)    MODEL="${QG_MODEL_QUICK-gpt-6.1-sol}";    EFFORT="low" ;;
   standard) MODEL="${QG_MODEL_STANDARD-gpt-6.1-sol}"; EFFORT="medium" ;;
-  *)        MODEL="${QG_MODEL_FULL-gpt-6-astra}";     EFFORT="high" ;;
+  *)        MODEL="${QG_MODEL_FULL-gpt-6.1-sol}";     EFFORT="high" ;;
 esac
 
 trailer() {
@@ -264,9 +264,8 @@ run_codex() {
 # Codex must not be able to modify the tree; it is a reviewer, not a fixer.
 CODEX_ARGS=(-c 'sandbox_mode="read-only"' -c 'approval_policy="never"')
 
-# Every mode pins its reasoning effort; full additionally gets the frontier
-# model. Quick/standard drop MCP servers and plugins, which only add startup
-# latency to a review.
+# Every mode pins its model and reasoning effort. Quick/standard drop MCP
+# servers and plugins, which only add startup latency to a review.
 CODEX_ARGS+=(-c "model_reasoning_effort=\"$EFFORT\"")
 if [ -n "$MODEL" ]; then
   CODEX_ARGS+=(-c "model=\"$MODEL\"")
@@ -309,7 +308,7 @@ fi
   case "$MODE" in
     quick)    printf 'Depth: reduced -- high-severity findings prioritised.\n' ;;
     standard) printf 'Depth: balanced -- everyday changes; use full for sensitive paths.\n' ;;
-    full)     printf 'Depth: full -- frontier model, all severities.\n' ;;
+    full)     printf 'Depth: full -- all severities.\n' ;;
   esac
   printf 'Command: codex exec review --uncommitted\n'
   if [ -s "$STDOUT_FILE" ] && command -v jq >/dev/null 2>&1; then

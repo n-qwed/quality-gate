@@ -86,7 +86,7 @@ and linked worktrees get independent state.
 
 | | `/qg:gate` (full) | `/qg:standard` | `/qg:quick` |
 | --- | --- | --- | --- |
-| Codex model | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| Codex model | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` |
 | Codex reasoning effort | `high` | `medium` | `low` |
 | MCP servers / plugins | loaded | disabled | disabled |
 | Max review passes | 3 | 3 | 2 |
