@@ -11,10 +11,14 @@
 #  * Self-contained on purpose: it must not break if the skill directory moves.
 #  * The repository is judged per `git commit` invocation, at the directory the
 #    commit actually runs in: the hook cwd, followed through `cd <dir>`, subshells
-#    `( ... )` and `git -C <dir>`. When that directory cannot be determined
-#    (variables, `cd -`, pushd/popd, --git-dir/--work-tree, GIT_DIR=...), the
-#    hook cwd is checked as well, so an uncertain command is never judged more
-#    leniently than before.
+#    `( ... )`, command substitutions `$( ... )` / backticks, and `git -C <dir>`.
+#  * Fail closed on doubt. When a directory cannot be determined (variables,
+#    `cd -`, pushd/popd, --git-dir/--work-tree, GIT_DIR=..., a `cd` whose effect
+#    depends on control flow: after &&/||, or before ||, | or &), every directory
+#    the command visited -- including the hook cwd -- is checked as well.
+#  * Here-document bodies fed to a shell are judged as commands (in their own
+#    scope). Other bodies are data, but a body that looks like `git ... commit`
+#    still counts as a commit at that point.
 
 set -uo pipefail
 
@@ -68,39 +72,56 @@ qg_enabled_at() {
 }
 
 # --- tokenizer ---------------------------------------------------------------
-# Quote-aware split of the command into one token per line:
+# Splits shell source into one token per line:
 #   W-<TAB>word   plain word (quotes removed)
-#   WE<TAB>word   word containing a $ or ` expansion (value not knowable)
-#   O-<TAB>op     operator: ";" (also &&, ||, |, &, newline), "(" or ")"
-# Quotes, $( ... ) and backticks nest the way the shell nests them, and stay
-# part of the surrounding word, so -m "$(cat <<'EOF' ... EOF)" is one token.
-# Here-document bodies are skipped (they are data), except when the heredoc
-# feeds a shell (bash/sh/zsh/... <<EOF), where the body is parsed as commands.
+#   WE<TAB>word   word containing a $ / ` expansion (value not knowable)
+#   O-<TAB>op     operator: ";" (also newline), "&&", "||", "|", "&", "(", ")"
+#   S-<TAB>src    source of a command substitution $( ... ) or ` ... `, emitted
+#                 at the end of the simple command that contains it
+#   H-<TAB>src    body of a here-document fed to a shell (bash <<EOF, <<EOF | sh)
+#   C-<TAB>       a data here-document body that looks like `git ... commit`
+# S/H sources encode newlines as \036 and tabs as \037. Quotes, $( ... ) and backticks nest the way
+# the shell nests them, so -m "$(cat <<'EOF' ... EOF)" stays one word.
 tokenize() {
   printf '%s' "$1" | LC_ALL=C awk '
     function flush() {
       if (inword) { gsub(/[\t\n\r]/, " ", tok); printf "W%s\t%s\n", (ex ? "E" : "-"), tok }
       tok = ""; inword = 0; ex = 0
     }
-    function op(o) { printf "O-\t%s\n", o }
+    # Substitution sources wait until the end of the simple command, so they
+    # never sit between a git option and its subcommand.
+    function op(o) { printf "%s", pend; pend = ""; printf "O-\t%s\n", o }
     function addc(ch) { tok = tok ch; inword = 1 }
-    # Does the simple command that contains position p run a shell?
-    function feeds_shell(p,    j, ch, seg, nw, w, k, b) {
+    function enc(x) { gsub(/\n/, "\036", x); gsub(/\t/, "\037", x); return x }
+    function open_sub(kind, start) {
+      if (subopen < 0) { subopen = d; sstart = start }
+      st[++d] = kind; ex = 1
+    }
+    function close_sub(end) {
+      d--
+      if (d == subopen) { pend = pend "S-\t" enc(substr(s, sstart, end - sstart)) "\n"; subopen = -1 }
+    }
+    # Does the physical line around position p run a shell? Looks back to the
+    # start of the simple command and forward to the end of the line, so both
+    # `bash <<EOF` and `cat <<EOF | sh` count.
+    function feeds_shell(p,    j, ch, e, seg, nw, w, k, b) {
       for (j = p - 1; j >= 1; j--) {
         ch = substr(s, j, 1)
-        if (ch == ";" || ch == "&" || ch == "|" || ch == "\n" || ch == "(" || ch == "`") break
+        if (ch == ";" || ch == "&" || ch == "|" || ch == "\n" || ch == "(" || ch == BQ) break
       }
-      seg = substr(s, j + 1, p - j - 1)
-      nw = split(seg, w, /[ \t]+/)
+      e = index(substr(s, p), "\n")
+      seg = (e == 0) ? substr(s, j + 1) : substr(s, j + 1, p - j - 1 + e)
+      gsub(/[;&|()`<>"\047]/, " ", seg)
+      nw = split(seg, w, /[ \t\n]+/)
       for (k = 1; k <= nw; k++) {
         b = w[k]; sub(/.*\//, "", b)
-        if (b ~ /^(bash|sh|zsh|dash|ksh|fish|eval|source)$/) return 1
+        if (b ~ /^(bash|sh|zsh|dash|ksh|fish|eval|source|\.)$/) return 1
       }
       return 0
     }
     # Register the heredoc whose "<<" ends just before position j.
     # Returns the index of the last character of the delimiter word.
-    function read_heredoc(j,    dash, w, ch) {
+    function read_heredoc(j, shell,    dash, w, ch) {
       dash = 0
       if (substr(s, j, 1) == "-") { dash = 1; j++ }
       while (j <= n && (substr(s, j, 1) == " " || substr(s, j, 1) == "\t")) j++
@@ -118,60 +139,74 @@ tokenize() {
         }
         j++
       }
-      if (w != "") { hd[nh] = w; hdash[nh] = dash; nh++ }
+      if (w != "") { hd[nh] = w; hdash[nh] = dash; hsh[nh] = shell; nh++ }
       return j - 1
     }
-    # Skip the bodies of pending heredocs; i is at the newline that starts them.
-    function skip_bodies(i,    pos, h, rest, e, line, lend) {
+    # Consume the bodies of pending heredocs; i is at the newline that starts
+    # them. Emits H/C tokens only at top level (nested ones are re-tokenized
+    # from the S source by the caller).
+    function skip_bodies(i, emit_tokens,    pos, h, rest, e, line, cmp, lend, body) {
       pos = i + 1
       for (h = 0; h < nh; h++) {
+        body = ""
         while (pos <= n) {
           rest = substr(s, pos); e = index(rest, "\n")
           if (e == 0) { line = rest; lend = n } else { line = substr(rest, 1, e - 1); lend = pos + e - 1 }
-          if (hdash[h]) sub(/^\t+/, "", line)
+          cmp = line
+          if (hdash[h]) sub(/^\t+/, "", cmp)
           pos = lend + 1
-          if (line == hd[h]) break
+          if (cmp == hd[h]) break
+          body = body line "\n"
+        }
+        if (emit_tokens) {
+          if (hsh[h]) printf "H-\t%s\n", enc(body)
+          else if (body ~ GITCOMMIT) printf "C-\t\n"
         }
       }
       nh = 0
       return pos - 1
     }
-    BEGIN { RS = "\001"; SQ = "\047"; DQ = "\042"; BS = "\\"; BQ = "`" }
+    BEGIN {
+      RS = "\001"; SQ = "\047"; DQ = "\042"; BS = "\\"; BQ = "`"
+      # git, then options (each optionally followed by one value), then commit
+      GITCOMMIT = "(^|[^A-Za-z0-9_.-])git([ \t]+-[^ \t\n]*([ \t]+[^- \t\n][^ \t\n]*)?)*[ \t]+commit([^A-Za-z0-9_-]|$)"
+    }
     {
-      s = $0; n = length(s); tok = ""; inword = 0; ex = 0; d = 0; st[0] = "TOP"; nh = 0
+      s = $0; n = length(s); tok = ""; inword = 0; ex = 0; d = 0; st[0] = "TOP"; nh = 0; subopen = -1; pend = ""
       for (i = 1; i <= n; i++) {
         c = substr(s, i, 1); nx = substr(s, i + 1, 1); cur = st[d]
         if (cur == "SQ") { if (c == SQ) d--; else addc(c); continue }
         if (cur == "DQ") {
           if (c == BS) { i++; addc(substr(s, i, 1)); continue }
           if (c == DQ) { d--; continue }
-          if (c == "$" && nx == "(") { i++; st[++d] = "SUB"; ex = 1; addc("$("); continue }
-          if (c == BQ) { st[++d] = "BT"; ex = 1; addc(c); continue }
+          if (c == "$" && nx == "(") { addc("$("); i++; open_sub("SUB", i + 1); continue }
+          if (c == BQ) { addc(c); open_sub("BT", i + 1); continue }
           if (c == "$") ex = 1
           addc(c); continue
         }
         if (cur == "BT") {
           if (c == BS) { i++; addc(substr(s, i, 1)); continue }
-          if (c == BQ) d--
-          addc(c); continue
+          addc(c)
+          if (c == BQ) close_sub(i)
+          continue
         }
         # TOP or SUB: shell syntax
         if (c == BS) { i++; ch = substr(s, i, 1); if (ch != "\n") addc(ch); continue }
         if (c == SQ) { st[++d] = "SQ"; inword = 1; continue }
         if (c == DQ) { st[++d] = "DQ"; inword = 1; continue }
-        if (c == "$" && nx == "(") { i++; st[++d] = "SUB"; ex = 1; addc("$("); continue }
-        if (c == BQ) { st[++d] = "BT"; ex = 1; addc(c); continue }
-        if (c == "<" && nx == "<" && substr(s, i + 2, 1) != "<" && !feeds_shell(i)) {
+        if (c == "$" && nx == "(") { addc("$("); i++; open_sub("SUB", i + 1); continue }
+        if (c == BQ) { addc(c); open_sub("BT", i + 1); continue }
+        if (c == "<" && nx == "<" && substr(s, i + 2, 1) != "<") {
           if (cur == "TOP") flush()
-          i = read_heredoc(i + 2); continue
+          i = read_heredoc(i + 2, feeds_shell(i)); continue
         }
         if (c == "\n" && nh > 0) {
           if (cur == "TOP") { flush(); op(";") } else addc(" ")
-          i = skip_bodies(i); continue
+          i = skip_bodies(i, cur == "TOP"); continue
         }
         if (cur == "SUB") {
-          if (c == "(") st[++d] = "SUB"
-          else if (c == ")") d--
+          if (c == "(") { st[++d] = "SUB"; addc(c); continue }
+          if (c == ")") { addc(c); close_sub(i); continue }
           if (c == "$") ex = 1
           addc(c); continue
         }
@@ -181,26 +216,44 @@ tokenize() {
         if (c == "&") {
           p = substr(s, i - 1, 1)
           if (p == ">" || p == "<" || nx == ">") { addc(c); continue }
-          flush(); if (nx == "&") i++; op(";"); continue
+          flush()
+          if (nx == "&") { i++; op("&&") } else op("&")
+          continue
         }
-        if (c == "|") { flush(); if (nx == "|") i++; op(";"); continue }
+        if (c == "|") {
+          flush()
+          if (nx == "|") { i++; op("||") } else op("|")
+          continue
+        }
         if (c == "$") ex = 1
         addc(c)
       }
       flush()
+      printf "%s", pend
     }'
 }
 
 kinds=()
 vals=()
-while IFS=$'\t' read -r k v; do
-  kinds[${#kinds[@]}]="$k"
-  vals[${#vals[@]}]="$v"
-done <<EOF
-$(tokenize "$command_str")
+# load <source> -> fills tk_kinds/tk_vals with its tokens
+load() {
+  tk_kinds=()
+  tk_vals=()
+  local k v
+  while IFS=$'\t' read -r k v; do
+    [ -n "$k" ] || continue
+    tk_kinds[${#tk_kinds[@]}]="$k"
+    tk_vals[${#tk_vals[@]}]="$v"
+  done <<EOF
+$(tokenize "$1")
 EOF
+}
+
+load "$command_str"
+[ "${#tk_kinds[@]}" -gt 0 ] || pass
+kinds=("${tk_kinds[@]}")
+vals=("${tk_vals[@]}")
 n=${#kinds[@]}
-[ "$n" -gt 0 ] || pass
 
 # resolve_dir <base> <path> -> prints absolute dir, returns 1 if it does not exist
 resolve_dir() {
@@ -216,23 +269,64 @@ resolve_dir() {
   (cd "$p" 2>/dev/null && pwd)
 }
 
+# splice_at <index> <source>: replace token <index> with "(" + tokens of <source> + ")"
+splice_at() {
+  local at="$1" src j
+  src=$(printf '%s' "$2" | tr '\036\037' '\n\t')
+  load "$src"
+  local -a nk=() nv=()
+  j=0
+  while [ "$j" -lt "$at" ]; do nk[${#nk[@]}]="${kinds[$j]}"; nv[${#nv[@]}]="${vals[$j]}"; j=$((j + 1)); done
+  nk[${#nk[@]}]="O-"; nv[${#nv[@]}]="("
+  j=0
+  while [ "$j" -lt "${#tk_kinds[@]}" ]; do nk[${#nk[@]}]="${tk_kinds[$j]}"; nv[${#nv[@]}]="${tk_vals[$j]}"; j=$((j + 1)); done
+  nk[${#nk[@]}]="O-"; nv[${#nv[@]}]=")"
+  j=$((at + 1))
+  while [ "$j" -lt "$n" ]; do nk[${#nk[@]}]="${kinds[$j]}"; nv[${#nv[@]}]="${vals[$j]}"; j=$((j + 1)); done
+  kinds=("${nk[@]}")
+  vals=("${nv[@]}")
+  n=${#kinds[@]}
+}
+
 # --- walk the command --------------------------------------------------------
 cur="$hook_cwd"
 stack=()
 uncertain=0
 cmdpos=1
+prev_op=";"
+splices=0
 commit_dirs=()
 wrapper_dirs=()
+visited=("$hook_cwd")
 
 i=0
 while [ "$i" -lt "$n" ]; do
   k="${kinds[$i]}"
   w="${vals[$i]}"
+
+  case "$k" in
+    S-|H-)
+      splices=$((splices + 1))
+      if [ "$splices" -gt 64 ]; then
+        # Too deeply nested to follow: fail closed.
+        uncertain=1
+        commit_dirs[${#commit_dirs[@]}]="$cur"
+        break
+      fi
+      splice_at "$i" "$w"
+      continue
+      ;;
+    C-)
+      commit_dirs[${#commit_dirs[@]}]="$cur"
+      i=$((i + 1))
+      continue
+      ;;
+  esac
   i=$((i + 1))
 
   if [ "$k" = "O-" ]; then
     case "$w" in
-      "(") stack[${#stack[@]}]="$cur" ;;
+      "(") stack[${#stack[@]}]="$cur"; prev_op=";" ;;
       ")")
         if [ "${#stack[@]}" -gt 0 ]; then
           last=$((${#stack[@]} - 1))
@@ -241,7 +335,9 @@ while [ "$i" -lt "$n" ]; do
         else
           uncertain=1
         fi
+        prev_op=";"
         ;;
+      *) prev_op="$w" ;;
     esac
     cmdpos=1
     continue
@@ -264,19 +360,28 @@ while [ "$i" -lt "$n" ]; do
     cmdpos=0
     case "$w" in
       cd)
+        # A cd whose effect depends on control flow is not certain:
+        # `x && cd d`, `x || cd d`, `x | cd d`, `cd d || y`, `cd d | y`, `cd d & y`.
+        case "$prev_op" in "&&"|"||"|"|"|"&") uncertain=1 ;; esac
+        j="$i"
+        while [ "$j" -lt "$n" ] && [ "${kinds[$j]}" != "O-" ]; do j=$((j + 1)); done
+        if [ "$j" -lt "$n" ]; then
+          case "${vals[$j]}" in "||"|"|"|"&") uncertain=1 ;; esac
+        fi
         # skip -P / -L style options
         while [ "$i" -lt "$n" ] && [ "${kinds[$i]}" != "O-" ] && [ "${vals[$i]}" != "-" ] \
               && [ "${vals[$i]#-}" != "${vals[$i]}" ]; do
           i=$((i + 1))
         done
-        if [ "$i" -ge "$n" ] || [ "${kinds[$i]}" = "O-" ]; then
-          uncertain=1                      # bare `cd` -> $HOME, treat as unknown
+        if [ "$i" -ge "$n" ] || [ "${kinds[$i]}" != "W-" ]; then
+          uncertain=1                      # bare `cd`, `cd $(...)`, `cd "$X"`
         else
           target="${vals[$i]}"
-          if [ "${kinds[$i]}" = "WE" ] || [ "$target" = "-" ]; then
+          if [ "$target" = "-" ]; then
             uncertain=1
           elif newdir=$(resolve_dir "$cur" "$target"); then
             cur="$newdir"
+            visited[${#visited[@]}]="$cur"
           else
             uncertain=1
           fi
@@ -298,14 +403,12 @@ while [ "$i" -lt "$n" ]; do
     a="${vals[$i]}"
     case "$a" in
       -C)
-        if [ $((i + 1)) -lt "$n" ] && [ "${kinds[$((i + 1))]}" != "O-" ]; then
-          if [ "${kinds[$((i + 1))]}" = "WE" ]; then
-            uncertain=1
-          elif newdir=$(resolve_dir "$eff" "${vals[$((i + 1))]}"); then
-            eff="$newdir"
-          else
-            uncertain=1
-          fi
+        if [ $((i + 1)) -lt "$n" ] && [ "${kinds[$((i + 1))]}" = "W-" ] \
+           && newdir=$(resolve_dir "$eff" "${vals[$((i + 1))]}"); then
+          eff="$newdir"
+          visited[${#visited[@]}]="$eff"
+        else
+          uncertain=1
         fi
         i=$((i + 2)); continue ;;
       --git-dir|--work-tree)
@@ -337,7 +440,7 @@ enabled_among() {
 
 if [ "${#commit_dirs[@]}" -gt 0 ]; then
   candidates=("${commit_dirs[@]}")
-  [ "$uncertain" -eq 1 ] && candidates[${#candidates[@]}]="$hook_cwd"
+  [ "$uncertain" -eq 1 ] && candidates=("${candidates[@]}" "${visited[@]}")
   if top=$(enabled_among "${candidates[@]}"); then
     emit deny "Quality Gate is enabled for this repository ($top).
 
@@ -349,10 +452,11 @@ The reviewed commit will be created at the end of the quality gate."
   pass
 fi
 
-# The sanctioned reviewed-commit wrapper, with no bare `git commit` alongside it.
+# The sanctioned reviewed-commit wrapper, with no bare `git commit` anywhere in
+# the command (substitutions and shell-fed heredocs included, see above).
 if [ "${#wrapper_dirs[@]}" -gt 0 ]; then
   candidates=("${wrapper_dirs[@]}")
-  [ "$uncertain" -eq 1 ] && candidates[${#candidates[@]}]="$hook_cwd"
+  [ "$uncertain" -eq 1 ] && candidates=("${candidates[@]}" "${visited[@]}")
   if enabled_among "${candidates[@]}" >/dev/null; then
     emit allow "Quality Gate: reviewed-commit wrapper (approval is verified by the script itself)."
   fi

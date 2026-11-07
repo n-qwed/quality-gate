@@ -51,13 +51,18 @@ silent otherwise, so it never interferes with normal work, and it never touches
 only thing it sees.
 
 The repository is judged where each `git commit` actually runs: the session
-directory, followed through `cd <dir>`, subshells `( ... )` and `git -C <dir>`
-(quotes are respected, so a message like `-m "fix(api): x && cd y"` is not
-mistaken for a command; here-document bodies are data unless they are fed to a
-shell such as `bash <<EOF`). When that directory cannot be known — a variable,
-`cd -`, `pushd`/`popd`, `--git-dir`/`--work-tree`, `GIT_DIR=...` — the session
-directory is checked as well, so an uncertain command is never treated more
-leniently.
+directory, followed through `cd <dir>`, subshells `( ... )`, command
+substitutions `$( ... )` / backticks (parsed recursively) and `git -C <dir>`.
+Quotes are respected, so a message like `-m "fix(api): x && cd y"` is not
+mistaken for a command. Here-document bodies fed to a shell (`bash <<EOF`,
+`cat <<EOF | sh`) are judged as commands; other bodies are data, but one that
+looks like `git ... commit` still counts as a commit at that point.
+
+It fails closed on doubt. When the directory cannot be known — a variable,
+`cd -`, `pushd`/`popd`, `--git-dir`/`--work-tree`, `GIT_DIR=...`, or a `cd`
+whose effect depends on control flow (after `&&`/`||`, or before `||`, `|`,
+`&`) — every directory the command visited, including the session directory,
+is checked as well.
 
 Commits go through `scripts/commit-reviewed.sh`, which immediately before
 committing re-checks that `HEAD` and the SHA-256 of `git diff --cached --binary`
