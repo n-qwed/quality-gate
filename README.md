@@ -25,14 +25,59 @@ Implement → Test → Codex Review → Fix → Re-test → Codex Re-review
 
 ## Install
 
+This repository is also a Claude Code plugin marketplace (`quality-gate`).
+In Claude Code 2.1.275 or later:
+
+```
+/plugin install qg --marketplace n-qwed/quality-gate
+```
+
+Or in two steps (any version with marketplaces):
+
+```
+/plugin marketplace add n-qwed/quality-gate
+/plugin install qg@quality-gate
+```
+
+It loads as `qg@quality-gate`.
+
+**Update.** Users receive a new release when `version` in
+`.claude-plugin/plugin.json` is raised, so bump it with every release.
+Marketplaces you add yourself do not auto-update by default: run
+`/plugin marketplace update quality-gate`, or turn on auto-update for it in the
+`/plugin` Marketplaces tab.
+
+**Uninstall** with `/plugin uninstall qg@quality-gate`
+(`/plugin disable qg@quality-gate` to switch it off temporarily).
+
+**Team rollout (optional).** Commit this to a project's `.claude/settings.json`
+so teammates are offered the marketplace once they trust the folder:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "quality-gate": {
+      "source": { "source": "github", "repo": "n-qwed/quality-gate" }
+    }
+  },
+  "enabledPlugins": { "qg@quality-gate": true }
+}
+```
+
+Each teammate still installs it once with
+`claude plugin install qg@quality-gate --scope project`.
+
+### Developing from a clone
+
+To hack on the plugin itself, clone it into the skills directory instead:
+
 ```bash
 git clone git@github.com:n-qwed/quality-gate.git ~/.claude/skills/qg
 ```
 
-Then `/reload-plugins`, or restart Claude Code. It loads as `qg@skills-dir`.
-
-Update with `git -C ~/.claude/skills/qg pull`. Uninstall by deleting the
-directory (`claude plugin disable qg@skills-dir` to switch it off temporarily).
+Then `/reload-plugins`; it loads as `qg@skills-dir`. If the marketplace copy is
+also installed, it takes precedence and the clone shows as "Not loaded" in the
+`/plugin` Errors tab, so disable `qg@quality-gate` while you work on the clone.
 
 ## Requirements
 
@@ -171,7 +216,9 @@ the argument assembly of all three review modes.
 
 ```
 qg/
-├── .claude-plugin/plugin.json
+├── .claude-plugin/
+│   ├── plugin.json                         plugin manifest (name, version)
+│   └── marketplace.json                    makes this repo the `quality-gate` marketplace
 ├── hooks/hooks.json                        PreToolUse registration
 ├── hooks-handlers/
 │   └── block-unreviewed-commit.sh          self-contained; fails open

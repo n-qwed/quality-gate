@@ -1,0 +1,14 @@
+{
+  "name": "quality-gate",
+  "owner": {
+    "name": "n-qwed"
+  },
+  "description": "Quality Gate for Claude Code: commits only after Codex CLI has independently reviewed the exact staged diff.",
+  "plugins": [
+    {
+      "name": "qg",
+      "source": "./",
+      "description": "Block direct commits in opted-in repositories until Codex CLI has independently reviewed the exact staged diff."
+    }
+  ]
+}
