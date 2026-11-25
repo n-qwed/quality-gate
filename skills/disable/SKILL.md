@@ -12,7 +12,7 @@ approval so it can never be reused later.
 ## Steps
 
 ```bash
-QG="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/qg}/scripts"
+QG="${CLAUDE_SKILL_DIR}/../../scripts"
 "$QG/quality-gate-state.sh" disable && "$QG/quality-gate-state.sh" status
 ```
 
@@ -23,7 +23,7 @@ cases — already being off is **not** an error.
 Optionally clear the sidebar (best effort, no notification):
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/qg}/scripts/cmux-status.sh" clear
+"${CLAUDE_SKILL_DIR}/../../scripts/cmux-status.sh" clear
 ```
 
 ## Reporting

@@ -53,6 +53,16 @@ jq -e '[.hooks.PreToolUse[]?|select(.matcher=="Bash")|.hooks[]?.command]|index("
    && ok "plugin registers the PreToolUse Bash hook" || bad "plugin hooks.json does not register the hook"
 jq -e '.name == "qg"' "$PLUGIN_ROOT/.claude-plugin/plugin.json" >/dev/null 2>&1 \
    && ok "plugin.json declares name qg" || bad "plugin.json name wrong"
+# Skill content only substitutes the exact ${CLAUDE_PLUGIN_ROOT} text, so a
+# shell default like ${CLAUDE_PLUGIN_ROOT:-...} always falls back.
+if grep -rq 'CLAUDE_PLUGIN_ROOT:-' "$PLUGIN_ROOT/skills"; then
+  bad "a skill uses \${CLAUDE_PLUGIN_ROOT:-...}, which is never substituted"
+else
+  ok "skills resolve paths without \${CLAUDE_PLUGIN_ROOT:-...}"
+fi
+for d in "$PLUGIN_ROOT"/skills/*/; do
+  [ -x "$d../../scripts/quality-gate-state.sh" ] || bad "scripts not reachable from ${d#$PLUGIN_ROOT/}"
+done
 
 printf '\n== 2. default OFF ==\n'
 "$QG/quality-gate-state.sh" enabled 2>/dev/null; chk "state: enabled exits non-zero when OFF" "$([ $? -ne 0 ] && echo yes || echo no)" "yes"

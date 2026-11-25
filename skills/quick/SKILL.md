@@ -8,10 +8,11 @@ disable-model-invocation: true
 
 Same gate, cheaper reviews.
 
-1. Read `${CLAUDE_PLUGIN_ROOT}/skills/gate/SKILL.md` in full.
+1. Read `${CLAUDE_SKILL_DIR}/../gate/SKILL.md` in full.
 2. Follow it exactly, with:
 
 ```bash
+QG="${CLAUDE_SKILL_DIR}/../../scripts"
 REVIEW=--quick
 ```
 

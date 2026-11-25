@@ -18,9 +18,13 @@ Scripts live in the plugin's `scripts/` directory. Set this once at the
 start of the run and reuse it:
 
 ```bash
-QG="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/qg}/scripts"
+QG="${CLAUDE_SKILL_DIR}/../../scripts"
 REVIEW=--full          # or --standard / --quick, see Modes below
 ```
+
+If `/qg:quick` or `/qg:standard` sent you here, use the `QG` value that skill
+gave you instead: this file was read directly, so the skill-directory
+placeholder above is not substituted.
 
 ---
 
