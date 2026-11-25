@@ -84,6 +84,92 @@ chk "git log | grep commit             -> allowed" "$(hook_decision "$REPO" 'git
 chk "git commit-tree (not commit)      -> allowed" "$(hook_decision "$REPO" 'git commit-tree abc123')" "none"
 chk "echo mentioning commit            -> allowed" "$(hook_decision "$REPO" 'echo building')" "none"
 
+printf '\n== 4b. hook judges the directory the commit runs in ==\n'
+OFF="$TMPROOT/off-repo"
+mkdir -p "$OFF" && ( cd "$OFF" && git init -q -b main . )
+HD="cd $OFF && git commit -m \"\$(cat <<'EOF'
+fix(api): message with (parens) && cd $REPO
+EOF
+)\""
+chk "cwd OFF, cd <ON> && git commit    -> deny"    "$(hook_decision "$OFF" "cd $REPO && git commit -m x")" "deny"
+chk "cwd ON,  cd <OFF> && git commit   -> allowed" "$(hook_decision "$REPO" "cd $OFF && git commit -m \"fix(api): x\"")" "none"
+chk "cwd ON,  git -C <OFF> commit      -> allowed" "$(hook_decision "$REPO" "git -C $OFF commit -m x")" "none"
+chk "cwd OFF, git -C <ON> commit       -> deny"    "$(hook_decision "$OFF" "git -C $REPO commit -m x")" "deny"
+chk "cwd non-repo, cd repo (relative)  -> deny"    "$(hook_decision "$TMPROOT" 'cd repo && git commit -m x')" "deny"
+chk "cwd ON,  (cd <OFF> && commit)     -> allowed" "$(hook_decision "$REPO" "(cd $OFF && git commit -m x)")" "none"
+chk "cwd ON,  (cd <OFF>); git commit   -> deny"    "$(hook_decision "$REPO" "(cd $OFF); git commit -m x")" "deny"
+chk "cwd OFF, git commit; cd <ON>      -> allowed" "$(hook_decision "$OFF" "git commit -m x; cd $REPO")" "none"
+chk "cwd OFF, quoted '&& cd <ON>'      -> allowed" "$(hook_decision "$OFF" "echo \"a && cd $REPO\" && git commit -m x")" "none"
+chk "cwd ON,  heredoc msg, cd <OFF>    -> allowed" "$(hook_decision "$REPO" "$HD")" "none"
+chk "cwd ON,  cd <OFF> && cd -         -> deny"    "$(hook_decision "$REPO" "cd $OFF && cd - && git commit -m x")" "deny"
+chk "cwd ON,  cd \"\$VAR\" (unknown)      -> deny"    "$(hook_decision "$REPO" 'cd "$TARGET" && git commit -m x')" "deny"
+chk "cwd ON,  cd <missing dir>         -> deny"    "$(hook_decision "$REPO" 'cd /nonexistent-qg-dir && git commit -m x')" "deny"
+chk "cwd ON,  GIT_DIR=<OFF> git commit -> deny"    "$(hook_decision "$REPO" "GIT_DIR=$OFF/.git git commit -m x")" "deny"
+chk "cwd ON,  git --git-dir=.. commit  -> deny"    "$(hook_decision "$REPO" "git --git-dir=$OFF/.git commit -m x")" "deny"
+chk "cwd ON,  pushd <OFF> && commit    -> deny"    "$(hook_decision "$REPO" "pushd $OFF && git commit -m x")" "deny"
+chk "cwd OFF, cd <ON> && wrapper       -> allow"   "$(hook_decision "$OFF" "cd $REPO && $QG/commit-reviewed.sh -m x")" "allow"
+chk "cwd ON,  cd <OFF> && wrapper      -> allowed" "$(hook_decision "$REPO" "cd $OFF && $QG/commit-reviewed.sh -m x")" "none"
+chk "cwd OFF, cd <ON> && 2>&1 commit   -> deny"    "$(hook_decision "$OFF" "cd $REPO && git commit -m x 2>&1")" "deny"
+HD_F="cd $OFF && git commit -F - <<'EOF'
+fix: body is data
+- mentions git -C x commit, GIT_DIR=y, an unbalanced ) and cd $REPO
+EOF"
+HD_NEST="cd $OFF && git commit -m \"\$(cat <<'EOF'
+a \"quoted\" word, a stray ) and cd $REPO
+EOF
+)\""
+HD_NEST_ON="cd $REPO && git commit -m \"\$(cat <<'EOF'
+a \"quoted\" word and a stray )
+EOF
+)\""
+HD_FILE="cat > notes.sh <<'EOF'
+git commit -m x
+EOF"
+HD_SHELL="bash <<'EOF'
+git commit -m x
+EOF"
+chk "cwd ON,  -F - heredoc, cd <OFF>   -> allowed" "$(hook_decision "$REPO" "$HD_F")" "none"
+chk "cwd ON,  nested quotes in \$(..)   -> allowed" "$(hook_decision "$REPO" "$HD_NEST")" "none"
+chk "cwd OFF, nested quotes, cd <ON>   -> deny"    "$(hook_decision "$OFF" "$HD_NEST_ON")" "deny"
+chk "cwd ON,  data heredoc w/ commit   -> deny"    "$(hook_decision "$REPO" "$HD_FILE")" "deny"
+chk "cwd ON,  heredoc fed to bash      -> deny"    "$(hook_decision "$REPO" "$HD_SHELL")" "deny"
+chk "cwd ON,  GIT_DIR only in message  -> allowed" "$(hook_decision "$REPO" "cd $OFF && git commit -m \"see GIT_DIR=x\"")" "none"
+chk "cwd ON,  export GIT_DIR=<OFF>     -> deny"    "$(hook_decision "$REPO" "export GIT_DIR=$OFF/.git; git commit -m x")" "deny"
+
+printf '\n== 4c. substitutions, piped heredocs, control flow ==\n'
+HD_PIPE="cat <<'EOF' | bash
+git commit -m x
+EOF"
+HD_PIPE_CD="cd $OFF && cat <<'EOF' | sh
+cd $REPO && git commit -m x
+EOF"
+HD_SCOPE="bash <<'EOF'
+cd $OFF
+EOF
+git commit -m x"
+HD_DATA_OFF="cd $OFF && cat <<'EOF' > notes.txt
+plain notes, no commands
+EOF
+git commit -m x"
+chk "cwd ON,  echo \$(git commit)       -> deny"    "$(hook_decision "$REPO" 'echo $(git commit -m x)')" "deny"
+chk "cwd ON,  echo \`git commit\`        -> deny"    "$(hook_decision "$REPO" 'echo `git commit -m x`')" "deny"
+chk "cwd ON,  \"\$(git commit)\" in DQ    -> deny"    "$(hook_decision "$REPO" 'x="$(git commit -m x)"')" "deny"
+chk "cwd OFF, \$(cd <ON> && commit)     -> deny"    "$(hook_decision "$OFF" "echo \"\$(cd $REPO && git commit -m x)\"")" "deny"
+chk "cwd ON,  x=\$(cd <OFF>); commit    -> deny"    "$(hook_decision "$REPO" "x=\$(cd $OFF); git commit -m x")" "deny"
+chk "cwd ON,  nested \$(\$(git commit))  -> deny"    "$(hook_decision "$REPO" 'echo $(echo $(git commit -m x))')" "deny"
+chk "cwd ON,  git -c k=\$(..) commit    -> deny"    "$(hook_decision "$REPO" 'git -c "user.name=$(whoami)" commit -m x')" "deny"
+chk "cwd ON,  cd <OFF> && commit \$(..) -> allowed" "$(hook_decision "$REPO" "cd $OFF && git commit -m \"\$(date)\"")" "none"
+chk "cwd ON,  cat <<EOF | bash         -> deny"    "$(hook_decision "$REPO" "$HD_PIPE")" "deny"
+chk "cwd OFF, <<EOF | sh, cd <ON>      -> deny"    "$(hook_decision "$OFF" "$HD_PIPE_CD")" "deny"
+chk "cwd ON,  bash heredoc cd is scoped -> deny"   "$(hook_decision "$REPO" "$HD_SCOPE")" "deny"
+chk "cwd ON,  data heredoc, cd <OFF>   -> allowed" "$(hook_decision "$REPO" "$HD_DATA_OFF")" "none"
+chk "cwd ON,  false && cd <OFF>; commit -> deny"   "$(hook_decision "$REPO" "false && cd $OFF; git commit -m x")" "deny"
+chk "cwd ON,  cd <OFF> | true; commit  -> deny"    "$(hook_decision "$REPO" "cd $OFF | true; git commit -m x")" "deny"
+chk "cwd ON,  cd <OFF> & commit        -> deny"    "$(hook_decision "$REPO" "cd $OFF & git commit -m x")" "deny"
+chk "cwd ON,  cd <OFF> || commit       -> deny"    "$(hook_decision "$REPO" "cd $OFF || git commit -m x")" "deny"
+chk "cwd ON,  cd <OFF>; git commit     -> allowed" "$(hook_decision "$REPO" "cd $OFF; git commit -m x")" "none"
+chk "cwd ON,  cd <OFF> || exit; commit -> deny"    "$(hook_decision "$REPO" "cd $OFF || exit 1; git commit -m x")" "deny"
+
 printf '\n== 5. approval + reviewed commit ==\n'
 printf 'v2\n' > app.txt
 "$QG/approve-commit.sh" >/dev/null 2>&1; chk "approve refuses with nothing staged" "$([ $? -ne 0 ] && echo yes || echo no)" "yes"

@@ -50,6 +50,20 @@ silent otherwise, so it never interferes with normal work, and it never touches
 `git commit` typed by you in your own terminal — Claude Code's Bash tool is the
 only thing it sees.
 
+The repository is judged where each `git commit` actually runs: the session
+directory, followed through `cd <dir>`, subshells `( ... )`, command
+substitutions `$( ... )` / backticks (parsed recursively) and `git -C <dir>`.
+Quotes are respected, so a message like `-m "fix(api): x && cd y"` is not
+mistaken for a command. Here-document bodies fed to a shell (`bash <<EOF`,
+`cat <<EOF | sh`) are judged as commands; other bodies are data, but one that
+looks like `git ... commit` still counts as a commit at that point.
+
+It fails closed on doubt. When the directory cannot be known — a variable,
+`cd -`, `pushd`/`popd`, `--git-dir`/`--work-tree`, `GIT_DIR=...`, or a `cd`
+whose effect depends on control flow (after `&&`/`||`, or before `||`, `|`,
+`&`) — every directory the command visited, including the session directory,
+is checked as well.
+
 Commits go through `scripts/commit-reviewed.sh`, which immediately before
 committing re-checks that `HEAD` and the SHA-256 of `git diff --cached --binary`
 still match what was approved after the final Codex review. Any drift is
