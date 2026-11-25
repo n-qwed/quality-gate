@@ -14,11 +14,11 @@
 #   in quick mode.
 #
 # Modes (model / reasoning effort):
-#   --full  (default) gpt-6.1-sol / high. MCP servers and plugins loaded.
+#   --full  (default) gpt-6.2-astra / high. MCP servers and plugins loaded.
 #           Deepest review; the slot for auth, payments, migrations, large diffs.
-#   --standard gpt-6.1-sol / medium, MCP servers and plugins disabled.
+#   --standard gpt-6.2-astra / medium, MCP servers and plugins disabled.
 #           Sits between quick and full: the everyday review.
-#   --quick gpt-6.1-sol / low, MCP servers and plugins disabled. Catches the
+#   --quick gpt-6.2-astra / low, MCP servers and plugins disabled. Catches the
 #           high-severity defects; may miss lower-severity ones.
 #
 #   The model per mode can be overridden with QG_MODEL_FULL, QG_MODEL_STANDARD
@@ -90,9 +90,9 @@ fi
 # Model per mode. `${VAR-default}` (no colon) so an explicitly empty override
 # means "do not pin a model; follow ~/.codex/config.toml".
 case "$MODE" in
-  quick)    MODEL="${QG_MODEL_QUICK-gpt-6.1-sol}";    EFFORT="low" ;;
-  standard) MODEL="${QG_MODEL_STANDARD-gpt-6.1-sol}"; EFFORT="medium" ;;
-  *)        MODEL="${QG_MODEL_FULL-gpt-6.1-sol}";     EFFORT="high" ;;
+  quick)    MODEL="${QG_MODEL_QUICK-gpt-6.2-astra}";    EFFORT="low" ;;
+  standard) MODEL="${QG_MODEL_STANDARD-gpt-6.2-astra}"; EFFORT="medium" ;;
+  *)        MODEL="${QG_MODEL_FULL-gpt-6.2-astra}";     EFFORT="high" ;;
 esac
 
 trailer() {
