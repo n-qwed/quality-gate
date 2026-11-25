@@ -10,7 +10,7 @@ Read-only. Reports state for the current repository and makes **no** changes.
 ## Steps
 
 ```bash
-QG="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/qg}/scripts"
+QG="${CLAUDE_SKILL_DIR}/../../scripts"
 "$QG/quality-gate-state.sh" status
 echo "Codex CLI: $(command -v codex >/dev/null 2>&1 && echo available || echo unavailable)"
 echo "cmux: $(command -v cmux >/dev/null 2>&1 && echo available || echo unavailable)"

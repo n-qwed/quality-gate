@@ -202,8 +202,11 @@ output is never treated as a pass.
 ## Tests
 
 ```bash
-~/.claude/skills/qg/tests/verify.sh
+tests/verify.sh
 ```
+
+Run it from a clone, or from the marketplace copy at
+`~/.claude/plugins/marketplaces/quality-gate/`.
 
 Runs ~176 checks in throwaway repositories and deletes them afterwards; it never
 touches a real repository. Codex is stubbed for the invocation tests, so the

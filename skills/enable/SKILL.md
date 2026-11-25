@@ -19,7 +19,7 @@ intended.
 Run exactly this:
 
 ```bash
-QG="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/qg}/scripts"
+QG="${CLAUDE_SKILL_DIR}/../../scripts"
 "$QG/quality-gate-state.sh" enable && "$QG/quality-gate-state.sh" status
 ```
 
@@ -29,7 +29,7 @@ It fails with a clear error outside a Git repository.
 Then give the sidebar a short marker (best effort, no notification):
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/skills/qg}/scripts/cmux-status.sh" log "Quality Gate enabled"
+"${CLAUDE_SKILL_DIR}/../../scripts/cmux-status.sh" log "Quality Gate enabled"
 ```
 
 ## Reporting
