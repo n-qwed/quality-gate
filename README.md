@@ -114,7 +114,38 @@ payments, migrations, deletion paths, and large diffs.
 
 The model per mode can be overridden with `QG_MODEL_FULL`, `QG_MODEL_STANDARD`
 and `QG_MODEL_QUICK`. Setting one to the empty string leaves the model to
-`~/.codex/config.toml`; the reasoning effort stays pinned per mode.
+`~/.codex/config.toml`; the reasoning effort stays pinned per mode. To go back
+to the previous default, for example:
+
+```zsh
+export QG_MODEL_FULL=gpt-6.1-sol QG_MODEL_STANDARD=gpt-6.1-sol QG_MODEL_QUICK=gpt-6.1-sol
+```
+
+### Why `gpt-6.2-astra`
+
+All three modes were benchmarked with `gpt-6.1-sol`, `gpt-6.2-sol` and
+`gpt-6.2-astra` (27 reviews) on throwaway repositories with planted defects,
+including subtle cross-file ones (a signature check that accepts mismatched
+lengths, session expiry written in ms but checked in s, a cache that skips the
+ownership check, a transaction update sent through the pool).
+
+| | `gpt-6.1-sol` | `gpt-6.2-sol` | `gpt-6.2-astra` |
+| --- | --- | --- | --- |
+| Planted defects found (hard set, 6 reviews) | 47/48 | 48/48 | 48/48 |
+| Rated "sessions never expire" P1 or higher | 1/6 | 0/6 | 6/6 |
+| Median time, quick / standard / full | 65 / 64 / 143 s | 76 / 105 / 138 s | 69 / 67 / 88 s |
+| Input tokens, full | 107k–145k | 98k–112k | 40k–46k |
+| False positives on correct decoy code | 0 | 0 | 0 |
+
+`gpt-6.2-astra` found as much as the others, rated severity most accurately at
+every effort level, and was the fastest in full mode. Raising the effort barely
+slows it down (high ≈ +30 % time over medium), while the `sol` models roughly double.
+Deeper business-logic findings (refunds on unpaid orders, payments lost after a
+cancellation) appeared only at medium/high effort.
+
+Not yet measured: how much of the Codex usage limit `gpt-6.2-astra` consumes
+per review compared with `gpt-6.1-sol`. An earlier frontier model (`gpt-6-astra`)
+used about five times as much, so watch the weekly limit after switching.
 
 ## Safety rules baked in
 
@@ -129,7 +160,7 @@ output is never treated as a pass.
 ~/.claude/skills/qg/tests/verify.sh
 ```
 
-Runs ~133 checks in throwaway repositories and deletes them afterwards; it never
+Runs ~176 checks in throwaway repositories and deletes them afterwards; it never
 touches a real repository. Codex is stubbed for the invocation tests, so the
 suite needs no network, no tokens, and finishes in seconds. It covers the
 default-OFF contract, hook allow/deny decisions, marker invisibility to
